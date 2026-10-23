@@ -39,7 +39,8 @@ static int picture_accepts(const char *mode) {
 
 static int frame_cap_accepts(const char *cap) {
     totk_frame_env e;
-    return totk_frame_env_build(cap, &e) && (e.present_hz || e.phone_fps);
+    /* 120 is a pane value whose mapping is "no override": the uncapped path already runs up to the display's rate. */
+    return totk_frame_env_build(cap, &e) && (e.present_hz || e.phone_fps || !strcmp(cap, "120"));
 }
 
 int main(int argc, char **argv) {
@@ -71,10 +72,11 @@ int main(int argc, char **argv) {
         failures++; fprintf(stderr, "unknown picture modes must be rejected without touching the result\n");
     }
 
-    /* 30 is the phone's own hold, not a paced clock; 60 and 120 pace the display link. */
+    /* 30 is the phone's own hold, 60 paces the display link, 120 leaves the pacing to the uncapped path (the
+       display's own rate). */
     frame("30", NULL, "30");
     frame("60", "60", NULL);
-    frame("120", "120", NULL);
+    frame("120", NULL, NULL);
     totk_frame_env f = {"keep", "keep"};
     if (totk_frame_env_build("90", &f) || totk_frame_env_build(NULL, &f) || strcmp(f.present_hz, "keep")) {
         failures++; fprintf(stderr, "unknown frame caps must be rejected without touching the result\n");

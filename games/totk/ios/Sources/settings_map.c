@@ -19,15 +19,18 @@ int totk_picture_env_build(const char *mode, totk_picture_env *out) {
     return 0;
 }
 
-/* A cap is a demand on the display: 60 and 120 pace it through DM_PRESENT_HZ. 30 is the phone's own hold
+/* A cap is a demand on the display: 60 paces it through DM_PRESENT_HZ, 30 is the phone's own hold
    (TOTK_PHONE_FPS), which keeps the game's frame interval in display units; pacing the clock at 30 Hz instead raised
-   the game's interval to 3 display units and the title ran at about 10 fps (hle_nvn.c phone_holds_30). */
+   the game's interval to 3 display units and the title ran at about 10 fps (hle_nvn.c phone_holds_30).
+   120 leaves the pacing alone: the iOS default is the uncapped path, whose ceiling is the display's own rate (120 on a
+   ProMotion iPad, 60 elsewhere). Setting DM_PRESENT_HZ=120 would turn that path off, and the app's own frame pacing
+   does not reach above the refresh rate anyway. */
 int totk_frame_env_build(const char *cap, totk_frame_env *out) {
     if (!cap) return 0;
     totk_frame_env e;
     if (!strcmp(cap, "30")) e = (totk_frame_env){NULL, "30"};
     else if (!strcmp(cap, "60")) e = (totk_frame_env){"60", NULL};
-    else if (!strcmp(cap, "120")) e = (totk_frame_env){"120", NULL};
+    else if (!strcmp(cap, "120")) e = (totk_frame_env){NULL, NULL};
     else return 0;
     *out = e;
     return 1;

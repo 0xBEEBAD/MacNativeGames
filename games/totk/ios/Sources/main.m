@@ -179,12 +179,6 @@ static void audio_observe(void) {
 }
 
 /* apply_settings runs before the window scene exists, so there is no scene screen to ask yet. */
-static NSInteger panel_max_hz(void) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    return UIScreen.mainScreen.maximumFramesPerSecond;
-#pragma clang diagnostic pop
-}
 static NSDictionary *pref_row(NSDictionary *root, NSString *key) {
     for (NSDictionary *item in root[@"PreferenceSpecifiers"] ?: @[])
         if ([item[@"Key"] isEqual:key]) return item;
@@ -259,14 +253,8 @@ static void apply_settings(void) {
         [d setObject:cap forKey:@"TOTK_FPS_CAP"];
         totk_frame_env_build(cap.UTF8String, &fenv);
     }
-    /* The 120 cap needs a 120 Hz panel; on a 60 Hz one run 60. */
-    if (fenv.present_hz && !strcmp(fenv.present_hz, "120") && panel_max_hz() < 120) {
-        fprintf(stderr, "[totk] settings: %s fps needs 120 Hz; this panel is %ld Hz, using 60\n",
-                cap.UTF8String, (long)panel_max_hz());
-        cap = [NSString stringWithUTF8String:totk_frame_cap_default()];
-        [d setObject:cap forKey:@"TOTK_FPS_CAP"];
-        totk_frame_env_build(cap.UTF8String, &fenv);
-    }
+    /* The 120 cap leaves the pacing to the uncapped path, whose ceiling is the display's own rate: a 60 Hz panel simply
+       never gets above 60, so there is no separate fallback to apply. */
     if (fenv.present_hz) setenv("DM_PRESENT_HZ", fenv.present_hz, 1); else unsetenv("DM_PRESENT_HZ");
     if (fenv.phone_fps) setenv("TOTK_PHONE_FPS", fenv.phone_fps, 1); else unsetenv("TOTK_PHONE_FPS");
     /* A stored scene the pane no longer offers would leave the game at a size it cannot name; use the pane's default

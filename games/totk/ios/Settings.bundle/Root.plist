@@ -97,7 +97,6 @@
 			<string>960x540</string>
 			<key>Values</key>
 			<array>
-				<string>1920x1080</string>
 				<string>1600x900</string>
 				<string>1280x720</string>
 				<string>960x540</string>
@@ -106,15 +105,14 @@
 			</array>
 			<key>Titles</key>
 			<array>
-				<string>1920x1080（最清晰，最热）· 1920x1080 (sharpest, hottest)</string>
-				<string>1600x900（清晰）· 1600x900 (sharper)</string>
+				<string>1600x900（清晰，可用的最高档）· 1600x900 (sharpest available)</string>
 				<string>1280x720（均衡，易掉帧）· 1280x720 (mixed, drops frames)</string>
 				<string>960x540（默认）· 960x540 (default)</string>
 				<string>800x450（流畅，画面软）· 800x450 (smoother, soft)</string>
 				<string>640x360（最省 GPU，画面最软）· 640x360 (cheapest, softest)</string>
 			</array>
 			<key>FooterText</key>
-			<string>只影响 3D 世界，与画质模式独立。GPU 开销几乎与像素数成正比（2026-10-23 实测：960x540 12.9 ms，1280x720 26.2 ms）。大世界里 960x540 热机后会从 60 掉到 30；800x450 约 8.9 ms，代价是画面更软。重启游戏后生效 · affects the 3D world only, independent of the picture mode. GPU cost is nearly linear in pixels (measured 2026-10-23: 12.9 ms at 960x540, 26.2 ms at 1280x720). In heavy areas 960x540 drops from 60 to 30 once the SoC heats up; 800x450 costs about 8.9 ms at the price of a softer picture. Takes effect after relaunching</string>
+			<string>只影响 3D 世界，与画质模式独立。GPU 开销几乎与像素数成正比（2026-10-23 实测：960x540 12.9 ms，1280x720 26.2 ms）。1600x900 是游戏本身的场景尺寸，也是 iOS 上不需要额外堆内存覆盖的最高档。大世界里 960x540 热机后会从 60 掉到 30；800x450 约 8.9 ms，代价是画面更软。重启游戏后生效 · affects the 3D world only, independent of the picture mode. GPU cost is nearly linear in pixels (measured 2026-10-23: 12.9 ms at 960x540, 26.2 ms at 1280x720). 1600x900 is the game's own scene size and the highest value iOS runs without a bigger HeapDef overlay. In heavy areas 960x540 drops from 60 to 30 once the SoC heats up; 800x450 costs about 8.9 ms at the price of a softer picture. Takes effect after relaunching</string>
 		</dict>
 		<dict>
 			<key>Type</key>
@@ -197,10 +195,10 @@
 			<array>
 				<string>30 帧（省电，最稳）· 30 fps (coolest, steadiest)</string>
 				<string>60 帧（推荐）· 60 fps</string>
-				<string>120 帧（最热）· 120 fps</string>
+				<string>120 帧（不限速，最高到屏幕刷新率）· 120 fps (uncapped, up to the display's rate)</string>
 			</array>
 			<key>FooterText</key>
-			<string>30 最省电也最稳，长时间不变；60 推荐，发热后可能临时降到 30，冷却后自行回到 60；120 最顺滑也最热，需要 120 Hz 面板，60 Hz 设备自动回退到 60。重启游戏后生效 · 30 is the coolest and holds steady over time; 60 is recommended — after the SoC heats up the game may drop to 30 for a while and return to 60 once it cools; 120 is the smoothest and hottest and needs a 120 Hz panel (a 60 Hz device falls back to 60). Takes effect after relaunching</string>
+			<string>30 最省电也最稳，长时间不变；60 推荐，发热后可能临时降到 30，冷却后自行回到 60；120 不限制节奏，能跑多快跑多快，最高就是屏幕刷新率（ProMotion iPad 为 120，60 Hz 设备就是 60）。重启游戏后生效 · 30 is the coolest and holds steady over time; 60 is recommended — after the SoC heats up the game may drop to 30 for a while and return to 60 once it cools; 120 leaves the pacing to the game, up to the display's refresh rate (120 on a ProMotion iPad, 60 on a 60 Hz screen). Takes effect after relaunching</string>
 		</dict>
 		<dict>
 			<key>Type</key>
@@ -326,7 +324,7 @@
 			<key>DefaultValue</key>
 			<true/>
 			<key>FooterText</key>
-			<string>每次切出游戏时把存档复制到「文件」App › 我的 iPad › Tears of the Kingdom › save-backups，保留最近 3 份；存档丢失时会自动恢复最新一份。卸载 App 会一并删除，需要跨重装保留请把该文件夹拷到 iCloud 或电脑 · copies the save to Files › On My iPad › Tears of the Kingdom › save-backups whenever the app leaves the screen, keeping the latest 3, and restores the newest one if the save is missing. Uninstalling the app deletes them too; copy the folder elsewhere to keep it across a reinstall</string>
+			<string>每次切出游戏时把存档复制到「文件」App › 我的 iPad › Tears of the Kingdom › Save Backups，保留最近 3 份；存档丢失时会自动恢复最新一份。卸载 App 会一并删除，需要跨重装保留请把该文件夹拷到 iCloud 或电脑 · copies the save to Files › On My iPad › Tears of the Kingdom › Save Backups whenever the app leaves the screen, keeping the latest 3, and restores the newest one if the save is missing. Uninstalling the app deletes them too; copy the folder elsewhere to keep it across a reinstall</string>
 		</dict>
 		<dict>
 			<key>Type</key>
