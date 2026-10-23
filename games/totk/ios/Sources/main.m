@@ -1,6 +1,8 @@
 #import <UIKit/UIKit.h>
 #import <AVFAudio/AVFAudio.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <GameController/GameController.h>
+#include <TargetConditionals.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -14,6 +16,7 @@
 
 int totk_host_main(int argc, char **argv);
 void runtime_ios_attach_layer(CAMetalLayer *layer, UIView *host);
+void runtime_ios_sync_drawable(UIView *host);
 static char *host_argv[3];
 static NSString *g_no_game_data;   // set when there is no RomFS image to play from (didFinishLaunching)
 static NSString *g_seed_pack, *g_seed_unpack_to;   // a pushed shader pack to unpack before the game starts (seed_unpack)
@@ -72,6 +75,9 @@ void runtime_shortcut_help_toggle(void) {}
 @interface TOTKMetalView : UIView @end
 @implementation TOTKMetalView
 + (Class)layerClass { return CAMetalLayer.class; }
+#if TARGET_OS_VISION
+- (void)layoutSubviews { [super layoutSubviews]; runtime_ios_sync_drawable(self); }
+#endif
 @end
 
 @interface TOTKGameController : UIViewController @property(nonatomic,strong) TOTKMetalView *gameView; @end
@@ -81,6 +87,12 @@ void runtime_shortcut_help_toggle(void) {}
     self.view.backgroundColor = UIColor.blackColor;
     self.gameView = [[TOTKMetalView alloc] initWithFrame:self.view.bounds];
     self.gameView.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+#if TARGET_OS_VISION
+    // Keep gamepad actions in GameController instead of visionOS converting them to pinch events.
+    GCEventInteraction *controllerInput = [GCEventInteraction new];
+    controllerInput.handledEventTypes = GCUIEventTypeGamepad;
+    [self.gameView addInteraction:controllerInput];
+#endif
     [self.view addSubview:self.gameView];
     runtime_ios_attach_layer((CAMetalLayer *)self.gameView.layer, self.gameView);
     TOTKTouchPad *pad=[[TOTKTouchPad alloc] initWithFrame:self.view.bounds];pad.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;[self.view addSubview:pad];
@@ -88,31 +100,27 @@ void runtime_shortcut_help_toggle(void) {}
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     static BOOL started; if (started) return; started = YES;
+    /* What happens before the game starts is said on the boot screen (runtime/frontend_ios.m), not on a label of its own:
+       one laid over it showed both texts on top of each other (2026-10-23). */
+    BOOL zh = [NSLocale.preferredLanguages.firstObject hasPrefix:@"zh"];   // the same rule as the boot screen (totk_ui_lang.h)
     if (g_no_game_data) {
-        UILabel *say = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 40, 40)];
-        say.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-        say.text = g_no_game_data; say.textColor = UIColor.whiteColor; say.numberOfLines = 0; say.textAlignment = NSTextAlignmentCenter;
-        [self.view addSubview:say];
+        runtime_boot_status(zh ? "无法开始游戏" : "Cannot start the game", g_no_game_data.UTF8String);
         return;
     }
     if (g_seed_pack) {   // shaders installed as a pack: unpack once, on screen, then start (not on the main thread: a long launch is killed)
-        BOOL zh = [NSLocale.preferredLanguages.firstObject hasPrefix:@"zh"];
-        UILabel *say = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 40, 40)];
-        say.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
-        say.textColor = UIColor.whiteColor; say.numberOfLines = 0; say.textAlignment = NSTextAlignmentCenter;
-        say.text = zh ? @"正在准备着色器（更新后只做一次）…" : @"Preparing the shaders (once after an update)…";
-        [self.view addSubview:say];
+        static const char *stage_zh = "正在准备着色器（更新后只做一次）", *stage_en = "Preparing the shaders (once after an update)";
+        const char *stage = zh ? stage_zh : stage_en;
+        runtime_boot_progress(stage, 0, 0);
         NSString *pack = g_seed_pack, *to = g_seed_unpack_to; g_seed_pack = nil;
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
             CFAbsoluteTime t0 = CFAbsoluteTimeGetCurrent();
-            NSString *why = seed_unpack(pack, to, ^(uint64_t done, uint64_t total) {
-                dispatch_async(dispatch_get_main_queue(), ^{ say.text = [NSString stringWithFormat:zh ? @"正在准备着色器（更新后只做一次）… %d%%" : @"Preparing the shaders (once after an update)… %d%%", (int)(done * 100 / (total ? total : 1))]; });
-            });
+            NSString *why = seed_unpack(pack, to, ^(uint64_t done, uint64_t total) { runtime_boot_progress(stage, done, total); });
             fprintf(stderr, "[totk] shader pack: %s in %.1f s\n", why ? why.UTF8String : "ready", CFAbsoluteTimeGetCurrent() - t0);
             dispatch_async(dispatch_get_main_queue(), ^{
-                if (why) { say.text = zh ? [NSString stringWithFormat:@"着色器准备失败（%@）。请在 Mac 上用 ios/tools/install_device.py 重新安装。", why]
-                                         : [NSString stringWithFormat:@"Could not prepare the shaders (%@). Install again from the Mac with ios/tools/install_device.py.", why]; return; }
-                [say removeFromSuperview]; [self startGame];
+                if (why) { runtime_boot_status(zh ? "着色器准备失败" : "Could not prepare the shaders", (zh
+                               ? [NSString stringWithFormat:@"%@。请在 Mac 上用 ios/tools/install_device.py 重新安装。", why]
+                               : [NSString stringWithFormat:@"%@. Install again from the Mac with ios/tools/install_device.py.", why]).UTF8String); return; }
+                [self startGame];
             });
         });
         return;
@@ -148,6 +156,13 @@ void runtime_shortcut_help_toggle(void) {}
     if (![scene isKindOfClass:UIWindowScene.class]) return;
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
     self.window.rootViewController = [TOTKGameController new]; [self.window makeKeyAndVisible];
+#if TARGET_OS_VISION
+    UIWindowSceneGeometryPreferencesVision *prefs = [[UIWindowSceneGeometryPreferencesVision alloc] initWithSize:CGSizeMake(1280, 720)];
+    prefs.resizingRestrictions = UIWindowSceneResizingRestrictionsUniform;
+    [(UIWindowScene *)scene requestGeometryUpdateWithPreferences:prefs errorHandler:^(NSError *error) {
+        fprintf(stderr, "[totk] 16:9 window refused: %s\n", error.localizedDescription.UTF8String);
+    }];
+#endif
 }
 @end
 
@@ -178,17 +193,20 @@ static void audio_observe(void) {
     }];
 }
 
+#if !TARGET_OS_VISION
 /* apply_settings runs before the window scene exists, so there is no scene screen to ask yet. */
 static NSDictionary *pref_row(NSDictionary *root, NSString *key) {
     for (NSDictionary *item in root[@"PreferenceSpecifiers"] ?: @[])
         if ([item[@"Key"] isEqual:key]) return item;
     return nil;
 }
+#endif
 
 /* The Settings app pane is the single source of defaults: every TOTK_* row with a DefaultValue is registered, so the
    game sees the same defaults before the player changes anything, then handed to the runtime as an environment
    variable. Plain keys use overwrite=0, so devicectl can still supply them; the picture and frame blocks below
-   overwrite the keys they own, because one mode must own the whole pipeline. */
+   overwrite the keys they own, because one mode must own the whole pipeline. visionOS is the exception: its platform
+   defaults own the picture and frame keys (the pane's rows describe a phone display). */
 static void apply_settings(void) {
     NSBundle *settings = [NSBundle bundleWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"Settings.bundle"]];
     NSString *path = [settings pathForResource:@"Root" ofType:@"plist"];
@@ -198,6 +216,14 @@ static void apply_settings(void) {
         NSString *key = item[@"Key"]; id value = item[@"DefaultValue"];
         if (key.length && [key hasPrefix:@"TOTK_"] && value) defaults[key] = value;
     }
+#if TARGET_OS_VISION
+    /* The pane's picture and frame rows describe a phone or tablet display. On visionOS the platform's own defaults
+       (didFinishLaunching, below) own those keys: the window is not a 60 Hz panel, and its scene size comes from the
+       headset rather than from a phone's list. Handing the pane's values over would silently replace them. */
+    for (NSString *key in @[@"TOTK_IOS_PICTURE_MODE", @"TOTK_IOS_DRAWABLE_H", @"TOTK_RENDER_RES", @"TOTK_ASPECT",
+                            @"TOTK_MFX_UPSCALE", @"TOTK_TAA", @"TOTK_FPS_CAP", @"TOTK_FPS_OVERLAY", @"TOTK_SHADER_OVERLAY"])
+        [defaults removeObjectForKey:key];
+#endif
     /* A package without the pane is broken; do not keep a second, hand-copied copy of the defaults here. Each
        consumer falls back to its own documented default (the picture and frame maps have theirs). */
     if (!defaults.count) fprintf(stderr, "[totk] settings: no Settings.bundle defaults; using the runtime defaults\n");
@@ -214,6 +240,7 @@ static void apply_settings(void) {
         /* overwrite=0: a devicectl value for a plain key still wins. The picture and frame blocks below own their keys
            and replace them. */
     }
+#if !TARGET_OS_VISION
     /* Before the pane existed, the drawable height was the only display choice. Adopt a stored choice once so an
        upgrade keeps the player's cooler or sharper setting instead of silently starting in the new default mode. */
     NSDictionary *stored = [d persistentDomainForName:NSBundle.mainBundle.bundleIdentifier] ?: @{};
@@ -284,6 +311,7 @@ static void apply_settings(void) {
             getenv("TOTK_FPS_OVERLAY") ?: "1", getenv("TOTK_SHADER_OVERLAY") ?: "1",
             (int)[d boolForKey:@"TOTK_TAA"],
             getenv("TOTK_MFX_UPSCALE") ?: "1", getenv("TOTK_MFX_OUTPUT") ?: "0");
+#endif
 }
 
 @interface TOTKApp : UIResponder <UIApplicationDelegate> @end
@@ -361,10 +389,20 @@ static void apply_settings(void) {
                             : @"No shaders. Install the game again from the Mac with ios/tools/install_device.py (it copies them to the device).";
         fprintf(stderr, "[totk] no shader seed: %s\n", g_no_game_data.UTF8String);
     }
+#if TARGET_OS_VISION
+    setenv("TOTK_OPERATION_MODE","docked",1);
+    setenv("TOTK_IOS_DRAWABLE_H","1080",0);
+    setenv("TOTK_RENDER_RES","1600x900",0);   // avoid the iPhone's default 960x540 in 1.4.3
+    setenv("TOTK_MFX_UPSCALE","0",0);
+    setenv("TOTK_FPS_OVERLAY","0",0);
+#else
     setenv("TOTK_OPERATION_MODE","handheld",1);
+#endif
     setenv("TOTK_ROMFS_PATCHES",[res stringByAppendingPathComponent:@"romfs-patches"].fileSystemRepresentation,1);
     setenv("TOTK_ROMFS_PATCHES_OUT",[res stringByAppendingPathComponent:@"romfs-patches-out"].fileSystemRepresentation,1);
     setenv("TOTK_SHARED_FONTS",[res stringByAppendingPathComponent:@"shared-fonts"].fileSystemRepresentation,1);
+    NSString *aoc = [res stringByAppendingPathComponent:@"aoc"];   // Breath of the Wild's add-on content packs (build_ipa.py; runtime/aoc_romfs.c)
+    if ([fm fileExistsAtPath:aoc]) setenv("TOTK_AOC",aoc.fileSystemRepresentation,1);
     setenv("TOTK_SHADER_SEED_DIR",seedDir.fileSystemRepresentation,1);
     /* One folder per translation chain, as on the Mac: the runtime refuses translations of another chain, and the seed
        import keeps files that are already there. Builds before the v5 chain (2026-10-20) kept them directly in
