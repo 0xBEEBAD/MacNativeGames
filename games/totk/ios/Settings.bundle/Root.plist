@@ -328,6 +328,18 @@
 		</dict>
 		<dict>
 			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_SAVE_IMPORT</string>
+			<key>Title</key>
+			<string>从文件夹导入存档 · Import a save from a folder</string>
+			<key>DefaultValue</key>
+			<false/>
+			<key>FooterText</key>
+			<string>打开后，下次启动会让你选一个含存档的文件夹（备份文件夹也可以），确认后替换当前存档；当前存档会先备份到 App 的 Documents/save-before-import。导入完成或取消后此开关自动关闭 · when on, the next launch asks for a folder holding a save (a backup folder works too) and replaces the current one after you confirm; the current save is kept in the app's Documents/save-before-import. The switch turns itself off afterwards</string>
+		</dict>
+		<dict>
+			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 			<key>Title</key>
 			<string>除錯 · Debug</string>
