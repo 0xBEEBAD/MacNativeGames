@@ -238,6 +238,80 @@
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 			<key>Title</key>
+			<string>手柄 · Controller</string>
+			<key>FooterText</key>
+			<string>重启游戏后生效 · takes effect after relaunching</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_GYRO</string>
+			<key>Title</key>
+			<string>手柄陀螺仪 · Controller gyroscope</string>
+			<key>DefaultValue</key>
+			<true/>
+			<key>FooterText</key>
+			<string>需要带陀螺仪的手柄（DualSense / DualShock / Switch Pro）· needs a controller with a gyroscope</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_RUMBLE</string>
+			<key>Title</key>
+			<string>手柄震动 · Controller rumble</string>
+			<key>DefaultValue</key>
+			<true/>
+			<key>FooterText</key>
+			<string>需要支持 HD 震动的手柄 · needs a controller with haptics</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
+			<string>键盘 · Keyboard</string>
+			<key>FooterText</key>
+			<string>重启游戏后生效 · takes effect after relaunching</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSRadioGroupSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_KEYBOARD</string>
+			<key>Title</key>
+			<string>键盘 · Keyboard</string>
+			<key>DefaultValue</key>
+			<string>auto</string>
+			<key>Values</key>
+			<array>
+				<string>auto</string>
+				<string>off</string>
+			</array>
+			<key>Titles</key>
+			<array>
+				<string>自动（连接时启用）</string>
+				<string>关闭</string>
+			</array>
+			<key>FooterText</key>
+			<string>妙控键盘、智能键盘或蓝牙键盘均可；关闭后只用触屏和手柄，防止键盘异常时无法操作 · works with a Magic Keyboard, Smart Keyboard or Bluetooth keyboard; off keeps touch and controllers only</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_TOUCH_WITH_KEYBOARD</string>
+			<key>Title</key>
+			<string>连接键盘时保留触屏 · Keep touch with a keyboard</string>
+			<key>DefaultValue</key>
+			<false/>
+			<key>FooterText</key>
+			<string>默认像手柄一样收起触控层；打开后键盘和触屏同时可用 · the touch layer hides for a keyboard by default; on keeps both</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
 			<string>除錯 · Debug</string>
 			<key>FooterText</key>
 			<string>開啟後把日誌寫進 App 的 Documents/log.txt（在 Mac 上讀取），會稍微影響效能；關閉時不記錄任何日誌。重新啟動遊戲後生效 · writes Documents/log.txt for reading on a Mac (slightly slower); off records nothing. Takes effect after relaunching the game</string>

@@ -90,5 +90,17 @@ class IOSSettings(unittest.TestCase):
             self.assertIs(rows[key]['DefaultValue'], True)
 
 
+    def test_every_row_is_applied_at_launch(self):
+        # main.m registers every TOTK_* row that has a DefaultValue and hands it to the runtime as an environment
+        # variable; a row without one, or a key without the prefix, would show in Settings and change nothing.
+        rows = self._rows()
+        self.assertTrue(rows)
+        for key, row in rows.items():
+            with self.subTest(key=key):
+                self.assertTrue(key.startswith('TOTK_'), key)
+                self.assertIn('Type', row, key)
+                self.assertIn('DefaultValue', row, key)
+
+
 if __name__ == '__main__':
     unittest.main()
