@@ -320,11 +320,11 @@
 			<key>Key</key>
 			<string>TOTK_BACKUP</string>
 			<key>Title</key>
-			<string>自动备份存档 · Automatic save backup</string>
+			<string>备份存档到文件夹 · Back up saves to a folder</string>
 			<key>DefaultValue</key>
-			<true/>
+			<false/>
 			<key>FooterText</key>
-			<string>每次切出游戏时把存档复制到「文件」App › 我的 iPad › Tears of the Kingdom › Save Backups，保留最近 3 份；存档丢失时会自动恢复最新一份。卸载 App 会一并删除，需要跨重装保留请把该文件夹拷到 iCloud 或电脑 · copies the save to Files › On My iPad › Tears of the Kingdom › Save Backups whenever the app leaves the screen, keeping the latest 3, and restores the newest one if the save is missing. Uninstalling the app deletes them too; copy the folder elsewhere to keep it across a reinstall</string>
+			<string>默认关闭。打开后第一次启动会弹出系统文件夹选择器，选一个位置（iCloud Drive 或「我的 iPad」任意文件夹），存档会镜像到其中的「Tears of the Kingdom」文件夹；卸载 App 不会删除它，重装后首次启动自动恢复。关闭后不再备份，已选的文件夹保留 · off by default. When on, the first launch shows the system folder picker; the save is mirrored into a "Tears of the Kingdom" folder at the chosen place (iCloud Drive or anywhere in Files). Uninstalling the app keeps it, and a fresh install restores from it automatically</string>
 		</dict>
 		<dict>
 			<key>Type</key>
