@@ -1465,6 +1465,13 @@ def step_app(tree, out, logs, *, version="v0", game='totk'):
     commit = source_commit()
     if commit:
         info['MNGSourceCommit'] = commit   # app/launcher.m -> TOTK_SOURCE_COMMIT: the HUD box shows which commit the app is
+    # Identify the source baseline, not the Nintendo game version; local patches may also be present.
+    try:
+        revision = subprocess.check_output(['git', '-C', str(REPO), 'rev-parse', 'HEAD'], text=True).strip()
+        if len(revision) == 40 and all(c in '0123456789abcdef' for c in revision):
+            info['MNGSourceRevision'] = revision
+    except (OSError, subprocess.CalledProcessError):
+        pass  # Source archives without Git metadata simply do not check for updates.
     import plistlib
     (tmp / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
     (tmp / 'Contents/PkgInfo').write_bytes(b'APPL????')
