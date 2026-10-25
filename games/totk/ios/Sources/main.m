@@ -17,6 +17,7 @@
 int totk_host_main(int argc, char **argv);
 void runtime_ios_attach_layer(CAMetalLayer *layer, UIView *host);
 void runtime_ios_sync_drawable(UIView *host);
+void runtime_ios_sync_safe_area(UIView *host);
 static char *host_argv[3];
 static NSString *g_no_game_data;   // set when there is no RomFS image to play from (didFinishLaunching)
 static NSString *g_seed_pack, *g_seed_unpack_to;   // a pushed shader pack to unpack before the game starts (seed_unpack)
@@ -69,8 +70,8 @@ static NSString *seed_unpack(NSString *base, NSString *dest, void (^progress)(ui
     return nil;
 }
 static void *run_host(void *unused) { (void)unused; return (void *)(intptr_t)totk_host_main(3, host_argv); }
-/* The desktop keyboard-overlay shortcut has no counterpart on iOS. */
-void runtime_shortcut_help_toggle(void) {}
+/* Key 1's settings panel is Mac only (runtime/frontend.m). */
+void runtime_settings_toggle(void) {}
 
 @interface TOTKMetalView : UIView @end
 @implementation TOTKMetalView
@@ -78,6 +79,7 @@ void runtime_shortcut_help_toggle(void) {}
 #if TARGET_OS_VISION
 - (void)layoutSubviews { [super layoutSubviews]; runtime_ios_sync_drawable(self); }
 #endif
+- (void)safeAreaInsetsDidChange { [super safeAreaInsetsDidChange]; runtime_ios_sync_safe_area(self); }   // the HUD boxes keep out of the notch
 @end
 
 @interface TOTKGameController : UIViewController @property(nonatomic,strong) TOTKMetalView *gameView; @end
@@ -262,7 +264,11 @@ static void apply_settings(void) {
         picture = [NSString stringWithUTF8String:totk_picture_mode_default()];
         totk_picture_env_build(picture.UTF8String, &penv);
     }
-    setenv("TOTK_IOS_DRAWABLE_H", penv.drawable, 1);
+    /* Settings › Full HD (docked) is the coarser switch over the same keys, and didFinishLaunching sets the operation
+       mode from it: while it is on it owns the drawable and the scene, so the picture row cannot leave the game at a
+       size the switch did not choose. */
+    BOOL docked = [d boolForKey:@"TOTK_DOCKED"];
+    setenv("TOTK_IOS_DRAWABLE_H", docked ? "1080" : penv.drawable, 1);
     setenv("TOTK_MFX_OUTPUT", penv.output_upscale, 1);
     /* Frame rate is one choice: the cap. */
     NSString *cap = [d stringForKey:@"TOTK_FPS_CAP"];
@@ -291,7 +297,8 @@ static void apply_settings(void) {
     NSString *fallback = scene_row[@"DefaultValue"] ?: @"960x540";
     const char *scene = getenv("TOTK_RENDER_RES");
     NSString *scene_text = scene && *scene ? [NSString stringWithUTF8String:scene] : nil;
-    if (scene_values.count && (!scene_text || ![scene_values containsObject:scene_text])) {
+    if (docked) setenv("TOTK_RENDER_RES", "1600x900", 1);   // the switch's own scene (Root.plist › Full HD)
+    else if (scene_values.count && (!scene_text || ![scene_values containsObject:scene_text])) {
         fprintf(stderr, "[totk] settings: scene \"%s\" is not a pane value; using %s\n",
                 scene_text.UTF8String ?: "", fallback.UTF8String);
         [d setObject:fallback forKey:@"TOTK_RENDER_RES"];
@@ -301,9 +308,10 @@ static void apply_settings(void) {
        bottom-left; the runtime reads both independently (gfx/nvn/fps_overlay.c). */
     setenv("TOTK_FPS_OVERLAY", [d boolForKey:@"TOTK_FPS_OVERLAY"] ? "1" : "0", 1);
     setenv("TOTK_SHADER_OVERLAY", [d boolForKey:@"TOTK_SHADER_OVERLAY"] ? "1" : "0", 1);
-    fprintf(stderr, "[totk] settings: picture %s (drawable %s), scene %s, fps %s (hz %s, phone %s), aspect %s, overlays %s/%s, taa %d, mfx %s/%s\n",
+    fprintf(stderr, "[totk] settings: picture %s%s (drawable %s), scene %s, fps %s (hz %s, phone %s), aspect %s, overlays %s/%s, taa %d, mfx %s/%s\n",
             picture.UTF8String ?: "?",
-            penv.drawable,
+            docked ? " + Full HD (docked, drawable and scene from the switch)" : "",
+            docked ? "1080" : penv.drawable,
             getenv("TOTK_RENDER_RES") ?: "?",
             cap.UTF8String ?: "60",
             getenv("DM_PRESENT_HZ") ?: "-", getenv("TOTK_PHONE_FPS") ?: "-",
@@ -396,6 +404,19 @@ static void apply_settings(void) {
     setenv("TOTK_MFX_UPSCALE","0",0);
     setenv("TOTK_FPS_OVERLAY","0",0);
 #else
+    /* Settings › Full HD (docked), Tears of the Kingdom only, off by default (a Vision Pro contributor's patch, user
+       2026-10-25): the game's docked settings as the Vision Pro build uses them, 1920x1080 output on a 1080-row drawable
+       with the scene at 1600x900 (1.4.3 renders 960x540 on the phone otherwise, game_patches_v143.c render_res). Off is the
+       handheld 1280x720 the phones were tested at. The Settings pane of Breath of the Wild has no such switch
+       (build_ipa.py). */
+#ifndef GAME_BOTW
+    if ([NSUserDefaults.standardUserDefaults boolForKey:@"TOTK_DOCKED"]) {
+        setenv("TOTK_OPERATION_MODE","docked",1);
+        setenv("TOTK_IOS_DRAWABLE_H","1080",0);
+        setenv("TOTK_RENDER_RES","1600x900",0);
+        fprintf(stderr, "[totk] Settings › Full HD: docked, 1920x1080 output, 1600x900 scene\n");
+    } else
+#endif
     setenv("TOTK_OPERATION_MODE","handheld",1);
 #endif
     setenv("TOTK_ROMFS_PATCHES",[res stringByAppendingPathComponent:@"romfs-patches"].fileSystemRepresentation,1);

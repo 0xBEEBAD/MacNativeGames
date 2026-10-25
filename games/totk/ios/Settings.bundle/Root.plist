@@ -58,9 +58,27 @@
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 			<key>Title</key>
+			<string>畫面 · Display</string>
+			<key>FooterText</key>
+			<string>開啟：遊戲的底座設定，輸出 1920×1080、內部 1600×900，需要較快的 iPad。關閉：手持 1280×720（內部 960×540）。重新啟動遊戲後生效 · on: the game's docked settings, 1920×1080 output, 1600×900 inside (for a fast iPad). Off: handheld 1280×720 (960×540 inside). Takes effect after relaunching the game</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_DOCKED</string>
+			<key>Title</key>
+			<string>Full HD（底座模式）· Full HD (docked)</string>
+			<key>DefaultValue</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
 			<string>画面 · Picture</string>
 			<key>FooterText</key>
-			<string>画质模式决定显示缓冲的大小，以及画布要不要由 MetalFX 放大到面板；场景分辨率只影响 3D 世界，与画质模式独立。超分与抗锯齿在下一组。重启游戏后生效 · the picture mode sets the drawable and whether MetalFX upscales the canvas to the panel; the scene resolution affects the 3D world only. Upscaling and anti-aliasing are in the next group. Takes effect after relaunching</string>
+			<string>画质模式决定显示缓冲的大小，以及画布要不要由 MetalFX 放大到面板；场景分辨率只影响 3D 世界，与画质模式独立。超分与抗锯齿在下一组。盖上「Full HD（底座模式）」时，显示缓冲与场景分辨率由它决定，这一组不生效。重启游戏后生效 · the picture mode sets the drawable and whether MetalFX upscales the canvas to the panel; the scene resolution affects the 3D world only. Upscaling and anti-aliasing are in the next group. While Full HD (docked) is on, it sets the drawable and the scene and this group does not apply. Takes effect after relaunching</string>
 		</dict>
 		<dict>
 			<key>Type</key>
