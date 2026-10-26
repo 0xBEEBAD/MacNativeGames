@@ -104,6 +104,34 @@
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 			<key>Title</key>
+			<string>觸控操作 · Touch controls</string>
+			<key>FooterText</key>
+			<string>未連接手柄時使用手機的陀螺儀和觸覺馬達；接上手柄後自動讓位。重新啟動遊戲後生效 · uses the phone's gyro and haptic actuator with no controller connected; a connected controller takes over. Takes effect after relaunching the game</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_PHONE_GYRO</string>
+			<key>Title</key>
+			<string>手機體感 · Phone gyro</string>
+			<key>DefaultValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_PHONE_HAPTICS</string>
+			<key>Title</key>
+			<string>手機震動 · Phone haptics</string>
+			<key>DefaultValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
 			<string>手柄 · Controller</string>
 			<key>FooterText</key>
 			<string>震动与陀螺仪只对支持的手柄生效。体感瞄准同时受游戏内选项影响。重新启动游戏后生效 · rumble and gyro apply only to controllers that have them, and motion aiming is also subject to the game's own option. Takes effect after relaunching</string>
