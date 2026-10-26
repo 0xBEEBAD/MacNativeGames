@@ -104,6 +104,34 @@
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 			<key>Title</key>
+			<string>觸控操作 · Touch controls</string>
+			<key>FooterText</key>
+			<string>未連接手柄時使用手機的陀螺儀和觸覺馬達；接上手柄後自動讓位。重新啟動遊戲後生效 · uses the phone's gyro and haptic actuator with no controller connected; a connected controller takes over. Takes effect after relaunching the game</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_PHONE_GYRO</string>
+			<key>Title</key>
+			<string>手機體感 · Phone gyro</string>
+			<key>DefaultValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_PHONE_HAPTICS</string>
+			<key>Title</key>
+			<string>手機震動 · Phone haptics</string>
+			<key>DefaultValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
 			<string>键盘 · Keyboard</string>
 			<key>FooterText</key>
 			<string>外接键盘会自动识别。插着键盘时触控按键会隐藏，打开第二项可保留触控。重新启动游戏后生效 · a hardware keyboard is detected automatically; while one is connected the touch controls hide, and the second switch below keeps them. Takes effect after relaunching</string>
