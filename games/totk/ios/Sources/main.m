@@ -206,9 +206,10 @@ static NSDictionary *pref_row(NSDictionary *root, NSString *key) {
 
 /* The Settings app pane is the single source of defaults: every TOTK_* row with a DefaultValue is registered, so the
    game sees the same defaults before the player changes anything, then handed to the runtime as an environment
-   variable. Plain keys use overwrite=0, so devicectl can still supply them; the picture and frame blocks below
-   overwrite the keys they own, because one mode must own the whole pipeline. visionOS is the exception: its platform
-   defaults own the picture and frame keys (the pane's rows describe a phone display). */
+   variable (overwrite=0, so devicectl can still supply a plain key). The picture and frame keys belong to one of the
+   pane's two layers, chosen by TOTK_CUSTOM_PICTURE: the presets (Full HD, frame rate) when it is off, the custom
+   picture and frame rows when it is on. Only the chosen layer is handed over, so no key is written twice. visionOS is
+   the exception: its platform defaults own the picture and frame keys (the pane's rows describe a phone display). */
 static void apply_settings(void) {
     NSBundle *settings = [NSBundle bundleWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"Settings.bundle"]];
     NSString *path = [settings pathForResource:@"Root" ofType:@"plist"];
@@ -223,7 +224,8 @@ static void apply_settings(void) {
        (didFinishLaunching, below) own those keys: the window is not a 60 Hz panel, and its scene size comes from the
        headset rather than from a phone's list. Handing the pane's values over would silently replace them. */
     for (NSString *key in @[@"TOTK_IOS_PICTURE_MODE", @"TOTK_IOS_DRAWABLE_H", @"TOTK_RENDER_RES", @"TOTK_ASPECT",
-                            @"TOTK_MFX_UPSCALE", @"TOTK_TAA", @"TOTK_FPS_CAP", @"TOTK_FPS_OVERLAY", @"TOTK_SHADER_OVERLAY"])
+                            @"TOTK_MFX_UPSCALE", @"TOTK_TAA", @"TOTK_FPS_CAP", @"TOTK_FPS_OVERLAY", @"TOTK_SHADER_OVERLAY",
+                            @"TOTK_DOCKED", @"TOTK_PHONE_FPS", @"TOTK_CUSTOM_PICTURE"])
         [defaults removeObjectForKey:key];
 #endif
     /* A package without the pane is broken; do not keep a second, hand-copied copy of the defaults here. Each
@@ -232,88 +234,119 @@ static void apply_settings(void) {
     fprintf(stderr, "[totk] settings: %lu defaults from %s\n", (unsigned long)defaults.count, path.UTF8String ?: "no Settings.bundle");
     NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
     [d registerDefaults:defaults];
+    /* One switch between the pane's layers (Root.plist, "Use custom settings"): the layer that is off is not handed
+       over at all, so neither can overwrite the other. The presets (Full HD, frame rate) are off's layer. */
+    BOOL custom = [d boolForKey:@"TOTK_CUSTOM_PICTURE"];
+    NSArray<NSString *> *inactive = custom ? @[@"TOTK_DOCKED", @"TOTK_PHONE_FPS"]
+                                           : @[@"TOTK_IOS_PICTURE_MODE", @"TOTK_RENDER_RES", @"TOTK_FPS_CAP"];
     for (NSString *key in defaults) {
+        if ([inactive containsObject:key]) continue;
         id value = [d objectForKey:key];
         if ([value isKindOfClass:NSNumber.class]) {
             setenv(key.UTF8String, [value boolValue] ? "1" : "0", 0);
         } else if ([value isKindOfClass:NSString.class] && [value length] && [value length] < 64) {
             setenv(key.UTF8String, [value UTF8String], 0);
         }
-        /* overwrite=0: a devicectl value for a plain key still wins. The picture and frame blocks below own their keys
-           and replace them. */
+        /* overwrite=0: a devicectl value for a plain key still wins. The layer block below owns the picture and frame
+           keys of the chosen layer. */
     }
 #if !TARGET_OS_VISION
-    /* Before the pane existed, the drawable height was the only display choice. Adopt a stored choice once so an
-       upgrade keeps the player's cooler or sharper setting instead of silently starting in the new default mode. */
-    NSDictionary *stored = [d persistentDomainForName:NSBundle.mainBundle.bundleIdentifier] ?: @{};
-    if (!stored[@"TOTK_IOS_PICTURE_MODE"]) {
-        NSString *old = stored[@"TOTK_IOS_DRAWABLE_H"];
-        NSString *migrated = [old isEqualToString:@"720"] ? @"720" : [old isEqualToString:@"1080"] ? @"1080" : old ? @"mfx" : nil;
-        if (migrated) {
-            [d setObject:migrated forKey:@"TOTK_IOS_PICTURE_MODE"];
-            fprintf(stderr, "[totk] settings: old drawable %s -> picture mode %s\n", old.UTF8String, migrated.UTF8String);
+    NSString *layer;
+    if (custom) {
+        /* Before the pane existed, the drawable height was the only display choice. Adopt a stored choice once so an
+           upgrade keeps the player's cooler or sharper setting instead of silently starting in the new default mode. */
+        NSDictionary *stored = [d persistentDomainForName:NSBundle.mainBundle.bundleIdentifier] ?: @{};
+        if (!stored[@"TOTK_IOS_PICTURE_MODE"]) {
+            NSString *old = stored[@"TOTK_IOS_DRAWABLE_H"];
+            NSString *migrated = [old isEqualToString:@"720"] ? @"720" : [old isEqualToString:@"1080"] ? @"1080" : old ? @"mfx" : nil;
+            if (migrated) {
+                [d setObject:migrated forKey:@"TOTK_IOS_PICTURE_MODE"];
+                fprintf(stderr, "[totk] settings: old drawable %s -> picture mode %s\n", old.UTF8String, migrated.UTF8String);
+            }
         }
-    }
-    /* The picture mode owns the drawable and the output upscale; the scene upscale is the pane's own switch
-       (TOTK_MFX_UPSCALE), so 960x540 can be sharpened into 1080p without changing the mode. */
-    NSString *picture = [d stringForKey:@"TOTK_IOS_PICTURE_MODE"];
-    totk_picture_env penv;
-    if (!totk_picture_env_build(picture.UTF8String, &penv)) {
-        fprintf(stderr, "[totk] settings: picture mode \"%s\" is not a pane value; using %s\n",
-                picture.UTF8String ?: "", totk_picture_mode_default());
-        picture = [NSString stringWithUTF8String:totk_picture_mode_default()];
-        totk_picture_env_build(picture.UTF8String, &penv);
-    }
-    /* Settings › Full HD (docked) is the coarser switch over the same keys, and didFinishLaunching sets the operation
-       mode from it: while it is on it owns the drawable and the scene, so the picture row cannot leave the game at a
-       size the switch did not choose. */
-    BOOL docked = [d boolForKey:@"TOTK_DOCKED"];
-    setenv("TOTK_IOS_DRAWABLE_H", docked ? "1080" : penv.drawable, 1);
-    setenv("TOTK_MFX_OUTPUT", penv.output_upscale, 1);
-    /* Frame rate is one choice: the cap. */
-    NSString *cap = [d stringForKey:@"TOTK_FPS_CAP"];
-    /* Older builds stored a frame mode here; "interp" was one of them. Adopt the default instead of an unknown value. */
-    if ([cap isEqualToString:@"interp"]) {
-        cap = [NSString stringWithUTF8String:totk_frame_cap_default()];
-        [d setObject:cap forKey:@"TOTK_FPS_CAP"];
-        fprintf(stderr, "[totk] settings: old frame mode interp -> %s fps\n", cap.UTF8String);
-    }
-    totk_frame_env fenv;
-    if (!totk_frame_env_build(cap.UTF8String, &fenv)) {
-        fprintf(stderr, "[totk] settings: frame cap \"%s\" is not a pane value; using %s\n",
-                cap.UTF8String ?: "", totk_frame_cap_default());
-        cap = [NSString stringWithUTF8String:totk_frame_cap_default()];
-        [d setObject:cap forKey:@"TOTK_FPS_CAP"];
-        totk_frame_env_build(cap.UTF8String, &fenv);
-    }
-    /* The 120 cap leaves the pacing to the uncapped path, whose ceiling is the display's own rate: a 60 Hz panel simply
-       never gets above 60, so there is no separate fallback to apply. */
-    if (fenv.present_hz) setenv("DM_PRESENT_HZ", fenv.present_hz, 1); else unsetenv("DM_PRESENT_HZ");
-    if (fenv.phone_fps) setenv("TOTK_PHONE_FPS", fenv.phone_fps, 1); else unsetenv("TOTK_PHONE_FPS");
-    /* A stored scene the pane no longer offers would leave the game at a size it cannot name; use the pane's default
-       and say so. A valid devicectl value was already applied and survives this check. */
-    NSDictionary *scene_row = pref_row(root, @"TOTK_RENDER_RES");
-    NSArray *scene_values = scene_row[@"Values"] ?: @[];
-    NSString *fallback = scene_row[@"DefaultValue"] ?: @"960x540";
-    const char *scene = getenv("TOTK_RENDER_RES");
-    NSString *scene_text = scene && *scene ? [NSString stringWithUTF8String:scene] : nil;
-    if (docked) setenv("TOTK_RENDER_RES", "1600x900", 1);   // the switch's own scene (Root.plist › Full HD)
-    else if (scene_values.count && (!scene_text || ![scene_values containsObject:scene_text])) {
-        fprintf(stderr, "[totk] settings: scene \"%s\" is not a pane value; using %s\n",
-                scene_text.UTF8String ?: "", fallback.UTF8String);
-        [d setObject:fallback forKey:@"TOTK_RENDER_RES"];
-        setenv("TOTK_RENDER_RES", fallback.UTF8String, 1);
+        /* The picture mode owns the drawable, the output upscale and the operation mode (the 1080 entry runs the
+           game's docked settings); the scene upscale is the pane's own switch (TOTK_MFX_UPSCALE). */
+        NSString *picture = [d stringForKey:@"TOTK_IOS_PICTURE_MODE"];
+        totk_picture_env penv;
+        if (!totk_picture_env_build(picture.UTF8String, &penv)) {
+            fprintf(stderr, "[totk] settings: picture mode \"%s\" is not a pane value; using %s\n",
+                    picture.UTF8String ?: "", totk_picture_mode_default());
+            picture = [NSString stringWithUTF8String:totk_picture_mode_default()];
+            totk_picture_env_build(picture.UTF8String, &penv);
+        }
+        setenv("TOTK_IOS_DRAWABLE_H", penv.drawable, 1);
+        setenv("TOTK_MFX_OUTPUT", penv.output_upscale, 1);
+#ifndef GAME_BOTW
+        setenv("TOTK_OPERATION_MODE", penv.operation, 1);
+#else
+        setenv("TOTK_OPERATION_MODE", "handheld", 1);
+#endif
+        /* Frame rate is one choice: the cap. */
+        NSString *cap = [d stringForKey:@"TOTK_FPS_CAP"];
+        /* Older builds stored a frame mode here; "interp" was one of them. Adopt the default instead of an unknown value. */
+        if ([cap isEqualToString:@"interp"]) {
+            cap = [NSString stringWithUTF8String:totk_frame_cap_default()];
+            [d setObject:cap forKey:@"TOTK_FPS_CAP"];
+            fprintf(stderr, "[totk] settings: old frame mode interp -> %s fps\n", cap.UTF8String);
+        }
+        totk_frame_env fenv;
+        if (!totk_frame_env_build(cap.UTF8String, &fenv)) {
+            fprintf(stderr, "[totk] settings: frame cap \"%s\" is not a pane value; using %s\n",
+                    cap.UTF8String ?: "", totk_frame_cap_default());
+            cap = [NSString stringWithUTF8String:totk_frame_cap_default()];
+            [d setObject:cap forKey:@"TOTK_FPS_CAP"];
+            totk_frame_env_build(cap.UTF8String, &fenv);
+        }
+        /* The 120 cap leaves the pacing to the uncapped path, whose ceiling is the display's own rate: a 60 Hz panel
+           simply never gets above 60, so there is no separate fallback to apply. */
+        if (fenv.present_hz) setenv("DM_PRESENT_HZ", fenv.present_hz, 1); else unsetenv("DM_PRESENT_HZ");
+        if (fenv.phone_fps) setenv("TOTK_PHONE_FPS", fenv.phone_fps, 1); else unsetenv("TOTK_PHONE_FPS");
+        /* A stored scene the pane no longer offers would leave the game at a size it cannot name; use the pane's default
+           and say so. A valid devicectl value was already applied and survives this check. */
+        NSDictionary *scene_row = pref_row(root, @"TOTK_RENDER_RES");
+        NSArray *scene_values = scene_row[@"Values"] ?: @[];
+        NSString *fallback = scene_row[@"DefaultValue"] ?: @"960x540";
+        const char *scene = getenv("TOTK_RENDER_RES");
+        NSString *scene_text = scene && *scene ? [NSString stringWithUTF8String:scene] : nil;
+        if (scene_values.count && (!scene_text || ![scene_values containsObject:scene_text])) {
+            fprintf(stderr, "[totk] settings: scene \"%s\" is not a pane value; using %s\n",
+                    scene_text.UTF8String ?: "", fallback.UTF8String);
+            [d setObject:fallback forKey:@"TOTK_RENDER_RES"];
+            setenv("TOTK_RENDER_RES", fallback.UTF8String, 1);
+        }
+        layer = [NSString stringWithFormat:@"custom (%@, scene %s, %@ fps)", picture, getenv("TOTK_RENDER_RES") ?: "?", cap];
+    } else {
+        /* The presets: the Full HD switch owns the drawable and the scene, the frame row owns the pacing. Overwrite 0
+           keeps a devicectl value for testing. */
+        totk_preset_env prenv;
+        totk_preset_env_build([d boolForKey:@"TOTK_DOCKED"], &prenv);
+        if (prenv.drawable) setenv("TOTK_IOS_DRAWABLE_H", prenv.drawable, 0);
+        if (prenv.scene) setenv("TOTK_RENDER_RES", prenv.scene, 0);
+        setenv("TOTK_MFX_OUTPUT", prenv.output_upscale, 0);
+#ifndef GAME_BOTW
+        setenv("TOTK_OPERATION_MODE", prenv.operation, 1);
+#else
+        setenv("TOTK_OPERATION_MODE", "handheld", 1);
+#endif
+        NSString *preset_fps = [d stringForKey:@"TOTK_PHONE_FPS"] ?: @"60";
+        totk_frame_env pfenv;
+        if (!totk_preset_frame_env_build(preset_fps.UTF8String, &pfenv)) {
+            fprintf(stderr, "[totk] settings: preset frame rate \"%s\" is not a pane value; using 60\n", preset_fps.UTF8String);
+            preset_fps = @"60";
+            totk_preset_frame_env_build(preset_fps.UTF8String, &pfenv);
+        }
+        if (pfenv.phone_fps) setenv("TOTK_PHONE_FPS", pfenv.phone_fps, 0);   // "60" is the uncapped path: nothing to set
+        layer = [NSString stringWithFormat:@"presets (%@, %@ fps)",
+                 [d boolForKey:@"TOTK_DOCKED"] ? @"Full HD docked" : @"handheld", preset_fps];
     }
     /* One switch per overlay: the status line in the top-right corner and the shader/pipeline counts in the
        bottom-left; the runtime reads both independently (gfx/nvn/fps_overlay.c). */
     setenv("TOTK_FPS_OVERLAY", [d boolForKey:@"TOTK_FPS_OVERLAY"] ? "1" : "0", 1);
     setenv("TOTK_SHADER_OVERLAY", [d boolForKey:@"TOTK_SHADER_OVERLAY"] ? "1" : "0", 1);
-    fprintf(stderr, "[totk] settings: picture %s%s (drawable %s), scene %s, fps %s (hz %s, phone %s), aspect %s, overlays %s/%s, taa %d, mfx %s/%s\n",
-            picture.UTF8String ?: "?",
-            docked ? " + Full HD (docked, drawable and scene from the switch)" : "",
-            docked ? "1080" : penv.drawable,
-            getenv("TOTK_RENDER_RES") ?: "?",
-            cap.UTF8String ?: "60",
+    fprintf(stderr, "[totk] settings: %s; drawable %s, scene %s, hz %s, phone %s, aspect %s, overlays %s/%s, taa %d, mfx %s/%s\n",
+            layer.UTF8String,
+            getenv("TOTK_IOS_DRAWABLE_H") ?: "default",
+            getenv("TOTK_RENDER_RES") ?: "default",
             getenv("DM_PRESENT_HZ") ?: "-", getenv("TOTK_PHONE_FPS") ?: "-",
             [[d stringForKey:@"TOTK_ASPECT"] UTF8String] ?: "?",
             getenv("TOTK_FPS_OVERLAY") ?: "1", getenv("TOTK_SHADER_OVERLAY") ?: "1",
@@ -351,6 +384,7 @@ static void apply_settings(void) {
     else { [fm removeItemAtPath:log error:nil]; if (freopen("/dev/null","w",stderr)) setvbuf(stderr,NULL,_IOFBF,1<<16); }
     apply_settings();
     setenv("TOTK_ROMFS",[res stringByAppendingPathComponent:@"romfs"].fileSystemRepresentation,1);
+    setenv("TOTK_GAME_DATA",[res stringByAppendingPathComponent:@"game-data"].fileSystemRepresentation,1);   // runtime/game_data.h
     /* The 17 GB image may live in Documents/GameData instead of the app (romfs.bin or romfs.bin.000, ...; ios/tools/
        install_device.py --game-data puts it there): a new build then installs without it, and reinstalling keeps it.
        Excluded from iCloud backups. The runtime still hashes it once against the build's pin (TOTK_ROMFS_PROOF_DIR). */
@@ -403,21 +437,6 @@ static void apply_settings(void) {
     setenv("TOTK_RENDER_RES","1600x900",0);   // avoid the iPhone's default 960x540 in 1.4.3
     setenv("TOTK_MFX_UPSCALE","0",0);
     setenv("TOTK_FPS_OVERLAY","0",0);
-#else
-    /* Settings › Full HD (docked), Tears of the Kingdom only, off by default (a Vision Pro contributor's patch, user
-       2026-10-25): the game's docked settings as the Vision Pro build uses them, 1920x1080 output on a 1080-row drawable
-       with the scene at 1600x900 (1.4.3 renders 960x540 on the phone otherwise, game_patches_v143.c render_res). Off is the
-       handheld 1280x720 the phones were tested at. The Settings pane of Breath of the Wild has no such switch
-       (build_ipa.py). */
-#ifndef GAME_BOTW
-    if ([NSUserDefaults.standardUserDefaults boolForKey:@"TOTK_DOCKED"]) {
-        setenv("TOTK_OPERATION_MODE","docked",1);
-        setenv("TOTK_IOS_DRAWABLE_H","1080",0);
-        setenv("TOTK_RENDER_RES","1600x900",0);
-        fprintf(stderr, "[totk] Settings › Full HD: docked, 1920x1080 output, 1600x900 scene\n");
-    } else
-#endif
-    setenv("TOTK_OPERATION_MODE","handheld",1);
 #endif
     setenv("TOTK_ROMFS_PATCHES",[res stringByAppendingPathComponent:@"romfs-patches"].fileSystemRepresentation,1);
     setenv("TOTK_ROMFS_PATCHES_OUT",[res stringByAppendingPathComponent:@"romfs-patches-out"].fileSystemRepresentation,1);

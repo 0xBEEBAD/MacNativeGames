@@ -61,6 +61,24 @@ class IOSSettings(unittest.TestCase):
         self.assertEqual(picture_default, rows['TOTK_IOS_PICTURE_MODE']['DefaultValue'])
         self.assertEqual(frame_default, rows['TOTK_FPS_CAP']['DefaultValue'])
 
+    def test_two_layers_are_one_choice(self):
+        # One switch selects the layer (main.m's TOTK_CUSTOM_PICTURE): the presets (Full HD, frame rate) are handed over
+        # when it is off, the custom picture and frame rows when it is on. Neither layer may write the other's keys, so
+        # both rows sets must stay in the pane and the switch must default to the presets.
+        rows = self._rows()
+        self.assertIn('TOTK_CUSTOM_PICTURE', rows)
+        self.assertEqual(rows['TOTK_CUSTOM_PICTURE']['Type'], 'PSToggleSwitchSpecifier')
+        self.assertIs(rows['TOTK_CUSTOM_PICTURE']['DefaultValue'], False)
+        self.assertIn('TOTK_DOCKED', rows)
+        self.assertIn('TOTK_PHONE_FPS', rows)
+        for key in ('TOTK_IOS_PICTURE_MODE', 'TOTK_RENDER_RES', 'TOTK_FPS_CAP'):
+            self.assertIn(key, rows)
+        executable = self._helper()
+        for value in rows['TOTK_PHONE_FPS']['Values']:
+            with self.subTest(key='TOTK_PHONE_FPS', value=value):
+                run = subprocess.run([str(executable), '--preset-fps', value], capture_output=True, text=True)
+                self.assertEqual(run.returncode, 0, f'TOTK_PHONE_FPS={value}: {run.stdout}{run.stderr}')
+
     def test_scene_values_are_sizes(self):
         # build_ipa.py reads this row to generate the HeapDef overlay of every scene the pane can select, and main.m
         # rejects a stored value the row does not list; both parse <width>x<height>.

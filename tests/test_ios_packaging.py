@@ -94,10 +94,18 @@ class FullHD(unittest.TestCase):
         self.assertEqual(len(switch), 1)
         self.assertIs(switch[0]['DefaultValue'], False)
         main = (ios/'Sources/main.m').read_text()
-        branch = re.search(r'#ifndef GAME_BOTW\n(.*?)#endif', main[main.index('TOTK_DOCKED') - 200:], re.S)
-        self.assertTrue(branch and 'TOTK_DOCKED' in branch.group(1))
-        for line in ('"TOTK_OPERATION_MODE","docked"', '"TOTK_IOS_DRAWABLE_H","1080"', '"TOTK_RENDER_RES","1600x900"'):
-            self.assertIn(line, branch.group(1))
+        # The switch is the pane's preset layer (main.m's apply_settings): it hands its own drawable and scene over
+        # through settings_map.c's table, which is where the docked values live.
+        self.assertIn('totk_preset_env_build([d boolForKey:@"TOTK_DOCKED"], &prenv)', main)
+        for line in ('setenv("TOTK_IOS_DRAWABLE_H", prenv.drawable, 0)', 'setenv("TOTK_RENDER_RES", prenv.scene, 0)'):
+            self.assertIn(line, main)
+        preset = re.search(r'int totk_preset_env_build\(int docked.*?\n}', (ios/'Sources/settings_map.c').read_text(), re.S)
+        self.assertIsNotNone(preset)
+        table = preset.group(0) if preset else ''
+        for value in ('"docked"', '"1080"', '"1600x900"'):
+            self.assertIn(value, table)
+        # Breath of the Wild has no docked settings: main.m keeps it handheld whatever the pane says.
+        self.assertIn('#ifndef GAME_BOTW', main)
         build = (TOOLS/'build_ipa.py').read_text()
         self.assertIn("s.get('Key')=='TOTK_DOCKED'", build)
         self.assertIn("'      - path: Gen/Settings.bundle'", build)

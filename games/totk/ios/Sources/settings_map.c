@@ -1,12 +1,13 @@
 #include "settings_map.h"
 #include <string.h>
 
-/* The picture mode owns the drawable only: the game renders into a 1920x1080 canvas, and the mode either matches the
-   drawable to that canvas (720 or 1080 rows) or hands the canvas to MetalFX and lets it fill the panel's own pixels. */
+/* The picture mode owns the drawable and the output upscale: the game renders into a 1920x1080 canvas, and the mode
+   either matches the drawable to that canvas (720 or 1080 rows) or hands the canvas to MetalFX and lets it fill the
+   panel's own pixels. The 1080 mode uses the game's docked settings, as the pane's Full HD preset does. */
 static const struct { const char *mode; totk_picture_env env; } PICTURE[] = {
-    {"720",  {"720",  "0"}},
-    {"1080", {"1080", "0"}},
-    {"mfx",  {"0",    "1"}},
+    {"720",  {"720",  "0", "handheld"}},
+    {"1080", {"1080", "0", "docked"}},
+    {"mfx",  {"0",    "1", "handheld"}},
 };
 
 int totk_picture_env_build(const char *mode, totk_picture_env *out) {
@@ -33,6 +34,23 @@ int totk_frame_env_build(const char *cap, totk_frame_env *out) {
     else if (!strcmp(cap, "120")) e = (totk_frame_env){NULL, NULL};
     else return 0;
     *out = e;
+    return 1;
+}
+
+/* The Full HD preset is the game's docked settings as the Vision Pro build uses them: 1920x1080 output on a 1080-row
+   drawable with the scene at 1600x900. Off is the handheld default of the runtime (no drawable or scene override). */
+int totk_preset_env_build(int docked, totk_preset_env *out) {
+    *out = docked ? (totk_preset_env){"docked", "1080", "1600x900", "0"}
+                  : (totk_preset_env){"handheld", NULL, NULL, "0"};
+    return 1;
+}
+
+/* The preset row's "60" is the uncapped path (ceiling: the display's rate); "30" holds 30 as the phone does. */
+int totk_preset_frame_env_build(const char *fps, totk_frame_env *out) {
+    if (!fps) return 0;
+    if (!strcmp(fps, "30")) *out = (totk_frame_env){NULL, "30"};
+    else if (!strcmp(fps, "60")) *out = (totk_frame_env){NULL, NULL};
+    else return 0;
     return 1;
 }
 
