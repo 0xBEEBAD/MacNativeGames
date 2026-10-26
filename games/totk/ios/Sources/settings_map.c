@@ -56,11 +56,14 @@ int totk_preset_frame_env_build(const char *fps, totk_frame_env *out) {
     return 1;
 }
 
-/* The keys the pane's layers own. Every other pane row is handed over whichever layer is active. */
+/* The keys the pane's layers own. Every other pane row is handed over whichever layer is active.
+   TOTK_IOS_DRAWABLE_H has no row any more (the picture mode replaced it), but a device that ran an earlier panel still
+   stores it: ALWAYS would hand that stale height over before the preset's docked 1080 and, overwrite=0, keep it. */
 static const struct { const char *key; totk_key_layer layer; } LAYERS[] = {
     {"TOTK_DOCKED",           TOTK_KEY_PRESET},
     {"TOTK_PHONE_FPS",        TOTK_KEY_PRESET},
     {"TOTK_IOS_PICTURE_MODE", TOTK_KEY_CUSTOM},
+    {"TOTK_IOS_DRAWABLE_H",   TOTK_KEY_CUSTOM},
     {"TOTK_RENDER_RES",       TOTK_KEY_CUSTOM},
     {"TOTK_FPS_CAP",          TOTK_KEY_CUSTOM},
 };

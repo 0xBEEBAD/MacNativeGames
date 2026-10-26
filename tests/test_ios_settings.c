@@ -138,6 +138,7 @@ int main(int argc, char **argv) {
        over in both layers. */
     if (totk_key_layer_of("TOTK_DOCKED") != TOTK_KEY_PRESET || totk_key_layer_of("TOTK_PHONE_FPS") != TOTK_KEY_PRESET ||
         totk_key_layer_of("TOTK_IOS_PICTURE_MODE") != TOTK_KEY_CUSTOM || totk_key_layer_of("TOTK_RENDER_RES") != TOTK_KEY_CUSTOM ||
+        totk_key_layer_of("TOTK_IOS_DRAWABLE_H") != TOTK_KEY_CUSTOM ||
         totk_key_layer_of("TOTK_FPS_CAP") != TOTK_KEY_CUSTOM || totk_key_layer_of("TOTK_FPS_OVERLAY") != TOTK_KEY_ALWAYS ||
         totk_key_layer_of(NULL) != TOTK_KEY_ALWAYS) {
         failures++; fprintf(stderr, "the key -> layer table is not what main.m and the tests expect\n");
