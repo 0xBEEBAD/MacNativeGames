@@ -25,9 +25,34 @@
 #include <stdlib.h>
 #include <string.h>
 #include "totk_mfx.h"
+#include <TargetConditionals.h>
 
 #define MLOG(...) do { fprintf(stderr, "[dm] [nvn-mtl] [mfx] " __VA_ARGS__); fputc('\n', stderr); } while (0)
 #define MDIE(...) do { MLOG("FATAL " __VA_ARGS__); abort(); } while (0)
+
+#if TARGET_OS_VISION
+/* visionOS has no MetalFX frame interpolator. Keep every entry point off, including environment initialization. */
+int mfx_enabled(void) { return 0; }
+const char *mfx_mode_name(int mode) { return mode == MFX_OFF ? "off" : "not available on visionOS"; }
+void mfx_set(int mode) { if (mode) MLOG("frame interpolation is not available on visionOS"); }
+void mfx_set_mv_dyn(int on) { (void)on; }
+int mfx_latch(void) { return 0; }
+id<MTLTexture> mfx_scene_target(id<MTLDevice> dev, NSUInteger w, NSUInteger h, MTLPixelFormat format) { (void)dev; (void)w; (void)h; (void)format; return nil; }
+id<MTLTexture> mfx_ui_target(id<MTLDevice> dev, NSUInteger w, NSUInteger h) { (void)dev; (void)w; (void)h; return nil; }
+void mfx_note_scene(void) {}
+void mfx_note_depth(id<MTLTexture> depth) { (void)depth; }
+void mfx_note_camera(const float *cam, int n) { (void)cam; (void)n; }
+id<MTLResidencySet> mfx_residency(void) { return nil; }
+int mfx_frame_prepare(double frame_s) { (void)frame_s; return -1; }
+NSArray *mfx_frame_encode(id<MTL4CommandBuffer> cb, int slot, id<MTL4CounterHeap> heap, NSUInteger stamp) { (void)cb; (void)slot; (void)heap; (void)stamp; return nil; }
+void mfx_note_gpu(double ms) { (void)ms; }
+void mfx_frame_abort(void) {}
+id<MTLTexture> mfx_output(int slot) { (void)slot; return nil; }
+void mfx_stats(char *out, size_t n) { snprintf(out, n, "not available on visionOS"); }
+void mfx_mv_log(void) {}
+int mfx_dump_due(void) { return 0; }
+void mfx_dump(long frame, id<MTLTexture> prev, id<MTLTexture> cur) { (void)frame; (void)prev; (void)cur; }
+#else
 
 #define MFX_OUT 3
 static struct {
@@ -93,20 +118,22 @@ static id<MTL4FXFrameInterpolator> fi_cached(NSUInteger iw, NSUInteger ih) {
 static _Atomic int g_on, g_req;
 static pthread_once_t g_once = PTHREAD_ONCE_INIT;
 const char *mfx_mode_name(int m) {
-    static const char *const names[MFX_NMODES] = {"off", "30+30 (the game at 30 fps)", "half the refresh rate (50+50 on a 100 Hz display)", "uncapped (every game frame interpolated)"};
+    static const char *const names[MFX_NMODES] = {"off", "30+30 (the game at 30 fps)", "40+40 (the game at 40 fps)", "50+50 (the game at 50 fps)", "uncapped (every game frame interpolated)"};
     return m >= 0 && m < MFX_NMODES ? names[m] : "?";
 }
 static void mfx_init(void) {
     const char *e = getenv("TOTK_MFX"); int v;
     if (!e || !*e || !strcmp(e, "0")) v = MFX_OFF;
     else if (!strcmp(e, "interp30")) v = MFX_30;
-    else if (!strcmp(e, "interp")) v = MFX_HALF;
+    else if (!strcmp(e, "interp40")) v = MFX_40;
+    else if (!strcmp(e, "interp50") || !strcmp(e, "interp")) v = MFX_50;
     else if (!strcmp(e, "interpmax")) v = MFX_MAX;
-    else MDIE("TOTK_MFX must be interp30, interp, interpmax or 0, got %s", e);
+    else MDIE("TOTK_MFX must be interp30, interp40, interp50 (interp), interpmax or 0, got %s", e);
     atomic_store(&g_req, v); atomic_store(&g_on, v);
     if (v) MLOG("TOTK_MFX=%s: MetalFX frame interpolation, %s", e, mfx_mode_name(v));
 }
 int mfx_enabled(void) { pthread_once(&g_once, mfx_init); return atomic_load_explicit(&g_on, memory_order_relaxed); }
+int mfx_requested(void) { pthread_once(&g_once, mfx_init); return atomic_load_explicit(&g_req, memory_order_relaxed); }
 void mfx_set(int m) {
     pthread_once(&g_once, mfx_init);
     if (m >= MFX_NMODES) { MLOG("[flag] mfx_interp takes 0..%d (-1 cycles), got %d", MFX_NMODES - 1, m); return; }
@@ -416,3 +443,5 @@ void mfx_stats(char *out, size_t n) {
              (unsigned long long)g.miss[2], (unsigned long long)g.miss[3],
              (unsigned long long)g.skip_first, (unsigned long long)g.skip_cut, (unsigned long long)g.skip_busy);
 }
+
+#endif  // TARGET_OS_VISION
