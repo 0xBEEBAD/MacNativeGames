@@ -48,7 +48,8 @@ try:
     import compression.zstd as zstd
 except ImportError:
     sys.exit('needs Python 3.14 (compression.zstd): run it with python3.14')
-from make_mod_manifest import VERSIONS, read_index, write_manifest
+import make_mod_manifest
+from make_mod_manifest import VERSIONS, app_image_dir, read_index, write_manifest
 
 try:
     from fontTools.pens.boundsPen import BoundsPen
@@ -401,6 +402,8 @@ def main():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument('--app', type=Path, help='the built Tears of the Kingdom.app')
     source.add_argument('--romfs', type=Path, help='a folder holding romfs.bin and runtime-index.bin')
+    parser.add_argument('--romfs-data', type=Path, help='the folder holding romfs.bin when it is not beside the index (an app '
+                        'built with --mac-game-data library: <data>/GameData/<version>; with --app that folder is the default)')
     parser.add_argument('--version', choices=VERSIONS, help='the game version (default: the mod folder name)')
     parser.add_argument('--style', choices=sorted(STYLES), default='keyboard')
     parser.add_argument('--replace', action='store_true', help='overwrite a font archive already in the mod folder')
@@ -411,9 +414,13 @@ def main():
         if not version:
             parser.error('name the game version with --version (or name the mod folder v0, v112, v121 or v143)')
         romfs = args.app / f'Contents/Resources/totk/extracted/{version}/romfs'
-    for need in ('romfs.bin', 'runtime-index.bin'):
-        if not (romfs / need).is_file():
-            parser.error(f'{romfs / need} not found')
+    image_dir = args.romfs_data or romfs
+    if args.app and not args.romfs_data and not (romfs / 'romfs.bin').exists():   # built with --mac-game-data library
+        image_dir = app_image_dir(args.app, version)
+    make_mod_manifest.IMAGE_DIR = image_dir   # write_manifest reads the originals from the image too
+    for need in (image_dir / 'romfs.bin', romfs / 'runtime-index.bin'):
+        if not need.is_file():
+            parser.error(f'{need} not found')
 
     index = read_index(romfs / 'runtime-index.bin')
     archives = [ARCHIVE] + sorted(p for p in index if p.startswith('Font/') and p.endswith('.bfarc.zs') and p != ARCHIVE)
@@ -421,7 +428,7 @@ def main():
     if existing and not args.replace:
         parser.error(f'{", ".join(existing)} already exist(s) (another mod\'s font archive, or an earlier run): '
                      'pass --replace to overwrite')
-    with (romfs / 'romfs.bin').open('rb') as image:
+    with (image_dir / 'romfs.bin').open('rb') as image:
         def read(path):
             offset, size = index[path]; image.seek(offset); data = image.read(size); assert len(data) == size; return data
         dictionaries = {}
