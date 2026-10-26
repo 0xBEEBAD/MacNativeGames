@@ -200,36 +200,6 @@
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 			<key>Title</key>
-			<string>画面比例 · Aspect ratio</string>
-			<key>FooterText</key>
-			<string>与画质模式、预设无关，两种模式下都生效 · independent of the picture mode and the presets; applies in both</string>
-		</dict>
-		<dict>
-			<key>Type</key>
-			<string>PSRadioGroupSpecifier</string>
-			<key>Key</key>
-			<string>TOTK_ASPECT</string>
-			<key>Title</key>
-			<string>画面比例 · Aspect ratio</string>
-			<key>DefaultValue</key>
-			<string>display</string>
-			<key>Values</key>
-			<array>
-				<string>display</string>
-				<string>0</string>
-			</array>
-			<key>Titles</key>
-			<array>
-				<string>填满屏幕 · Fill the screen</string>
-				<string>16:9（黑边）· 16:9 letterbox</string>
-			</array>
-			<key>FooterText</key>
-			<string>填满屏幕不拉伸画面：相机按屏幕比例取景，呈现时再还原比例。iPad 比 16:9 窄，所以两侧会少一点、上下填满；16:9 保留完整宽度并加黑边。少数 UI 特效可能偏移（实验性）· fill does not stretch: the camera takes the screen's aspect and the present pass restores the proportions. An iPad is narrower than 16:9, so a little is lost at the sides and the height is filled; 16:9 keeps the full width with bars. A few UI effects may sit off (experimental)</string>
-		</dict>
-		<dict>
-			<key>Type</key>
-			<string>PSGroupSpecifier</string>
-			<key>Title</key>
 			<string>MetalFX · 超分与抗锯齿</string>
 			<key>FooterText</key>
 			<string>管线：场景按「场景分辨率」渲染 → 场景超分 → 画布 → 输出超分（仅自定义模式的 MetalFX 2K 档）→ 面板。两段超分都是 MetalFX 空间放大，不增加帧延迟；边缘平滑是 MetalFX 的时间抗锯齿。重启游戏后生效 · pipeline: the scene renders at the scene resolution → scene upscaling → canvas → output upscaling (custom mode's MetalFX 2K entry only) → panel. Both stages are MetalFX spatial scaling with no added latency; edge smoothing is MetalFX temporal anti-aliasing. Takes effect after relaunching</string>
@@ -242,9 +212,9 @@
 			<key>Title</key>
 			<string>场景超分 · Scene upscaling</string>
 			<key>DefaultValue</key>
-			<true/>
+			<false/>
 			<key>FooterText</key>
-			<string>把 3D 场景用 MetalFX 放大到画布（场景 → 画布这一段）：画面更锐，实测 GPU 代价不到 0.2 ms；关掉画面会明显变软。重启游戏后生效 · MetalFX upscales the 3D scene into the canvas (the scene → canvas stage): sharper for under 0.2 ms of GPU in our measurements; off is visibly softer. Takes effect after relaunching</string>
+			<string>默认关闭，与 iPhone 的决定一致：游戏自带的放大已经是一道便宜的 pass，MetalFX 不增加画面收益时就不开。打开后 3D 场景由 MetalFX 放大到画布（场景 → 画布这一段），画面更锐，实测 GPU 代价不到 0.2 ms。重启游戏后生效 · off by default, as decided for the iPhone: the game's own upscale is already one cheap pass. On, MetalFX upscales the 3D scene into the canvas (the scene → canvas stage): sharper for under 0.2 ms of GPU in our measurements. Takes effect after relaunching</string>
 		</dict>
 		<dict>
 			<key>Type</key>

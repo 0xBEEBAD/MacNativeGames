@@ -2,6 +2,7 @@
 #import <GameController/GameController.h>
 #include <math.h>
 #include "runtime.h"
+#include "settings_map.h"
 
 /* Layout inside the safe area (clear of the iPhone's notch, rounded corners and home indicator), like a Switch
    controller: ZL/L and R/ZR along the top with − and + between them, and two columns mirroring each other: on the left
@@ -11,9 +12,9 @@
    A touch that misses every button is a stick, centred where the finger went down: the left stick on the left half,
    the camera (right stick) on the right half. Bits are the Npad buttons. While a game controller is connected the layer
    is hidden; a touch shows it and works as usual, and it hides again 3 seconds after the last finger lifts.
-   Between − and + a smaller button shows the frame rate the game is held to; a tap switches it at once and keeps the
-   choice for the next start (the pane's preset frame row, TOTK_PHONE_FPS, or its custom cap, TOTK_FPS_CAP, whichever
-   layer "Use custom settings" selected). */
+   Between − and + a smaller button shows the frame rate the game is held to; a tap switches it at once. With the
+   custom layer off it saves the choice in the pane's preset row (TOTK_PHONE_FPS) for the next start; with it on the
+   pane owns the cap, so the button only holds 30 until the next launch. */
 typedef struct { CGPoint at; uint64_t bit; NSString *label; CGFloat size; } TouchButton;
 enum { kButtonCount = 16 };
 static const CGFloat kButtonSize = 46;
@@ -110,13 +111,13 @@ static const CGFloat kFpsButtonSize = 34;
 - (CGPoint)fpsButton { CGRect a = self.area; return CGPointMake(CGRectGetMidX(a), CGRectGetMinY(a) + a.size.height * .12); }
 - (BOOL)fpsButtonAt:(CGPoint)p { CGPoint f = self.fpsButton; return hypot(p.x - f.x, p.y - f.y) < kFpsButtonSize * .75; }
 - (void)switchFrameRate {
-    /* The pane's two layers: with "Use custom settings" off the button flips the presets' frame row (30 / 60), with
-       it on the custom cap (30 / 120, the uncapped entry). Either way one key holds the choice. */
+    /* The pane's two layers (settings_map.c): the preset layer saves 30 / 60 in its own row; the custom layer keeps the
+       cap in the pane, so this only holds 30 until the next launch and saves nothing. */
     BOOL custom = [NSUserDefaults.standardUserDefaults boolForKey:@"TOTK_CUSTOM_PICTURE"];
-    int fps = runtime_phone_fps() == 30 ? (custom ? 120 : 60) : 30;
+    int fps = totk_frame_button_target(runtime_phone_fps() == 30);
     runtime_phone_fps_set(fps);
-    [NSUserDefaults.standardUserDefaults setObject:fps == 30 ? @"30" : (custom ? @"120" : @"60")
-                                            forKey:custom ? @"TOTK_FPS_CAP" : @"TOTK_PHONE_FPS"];
+    const char *key = totk_frame_button_key(custom);
+    if (key) [NSUserDefaults.standardUserDefaults setObject:fps == 30 ? @"30" : @"60" forKey:@(key)];
     [self setNeedsDisplay];
 }
 

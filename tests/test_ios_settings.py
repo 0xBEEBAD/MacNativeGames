@@ -78,10 +78,18 @@ class IOSSettings(unittest.TestCase):
             with self.subTest(key='TOTK_PHONE_FPS', value=value):
                 run = subprocess.run([str(executable), '--preset-fps', value], capture_output=True, text=True)
                 self.assertEqual(run.returncode, 0, f'TOTK_PHONE_FPS={value}: {run.stdout}{run.stderr}')
+        # The key -> layer table is the one main.m filters by; a row that moves layers without the table following it
+        # would be handed over (or dropped) by the wrong layer.
+        for key, layer in {'TOTK_DOCKED': 'preset', 'TOTK_PHONE_FPS': 'preset',
+                           'TOTK_IOS_PICTURE_MODE': 'custom', 'TOTK_RENDER_RES': 'custom',
+                           'TOTK_FPS_CAP': 'custom', 'TOTK_FPS_OVERLAY': 'always'}.items():
+            with self.subTest(key=key, layer=layer):
+                run = subprocess.run([str(executable), '--layer', key], capture_output=True, text=True)
+                self.assertEqual(run.stdout.strip(), layer, key)
 
     def test_scene_values_are_sizes(self):
-        # build_ipa.py reads this row to generate the HeapDef overlay of every scene the pane can select, and main.m
-        # rejects a stored value the row does not list; both parse <width>x<height>.
+        # build_ipa.py embeds one of these sizes in the exported patch, and main.m rejects a stored value the row does
+        # not list; both parse <width>x<height>.
         row = self._rows()['TOTK_RENDER_RES']
         values = row['Values']
         self.assertIn(row['DefaultValue'], values)

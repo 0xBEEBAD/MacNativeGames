@@ -89,6 +89,11 @@ int main(int argc, char **argv) {
         fprintf(stderr, "preset frame rate %s: not accepted\n", argv[2]);
         return 1;
     }
+    if (argc == 3 && !strcmp(argv[1], "--layer")) {
+        totk_key_layer l = totk_key_layer_of(argv[2]);
+        puts(l == TOTK_KEY_PRESET ? "preset" : l == TOTK_KEY_CUSTOM ? "custom" : "always");
+        return 0;
+    }
     if (argc == 2 && !strcmp(argv[1], "--defaults")) {
         printf("%s\n%s\n", totk_picture_mode_default(), totk_frame_cap_default());
         return 0;
@@ -127,6 +132,20 @@ int main(int argc, char **argv) {
     totk_frame_env pf = {"keep", "keep"};
     if (totk_preset_frame_env_build("90", &pf) || totk_preset_frame_env_build(NULL, &pf) || strcmp(pf.present_hz, "keep")) {
         failures++; fprintf(stderr, "unknown preset frame rates must be rejected without touching the result\n");
+    }
+
+    /* Which layer owns which key is one table (main.m's filter and these tests read it); keys nobody listed are handed
+       over in both layers. */
+    if (totk_key_layer_of("TOTK_DOCKED") != TOTK_KEY_PRESET || totk_key_layer_of("TOTK_PHONE_FPS") != TOTK_KEY_PRESET ||
+        totk_key_layer_of("TOTK_IOS_PICTURE_MODE") != TOTK_KEY_CUSTOM || totk_key_layer_of("TOTK_RENDER_RES") != TOTK_KEY_CUSTOM ||
+        totk_key_layer_of("TOTK_FPS_CAP") != TOTK_KEY_CUSTOM || totk_key_layer_of("TOTK_FPS_OVERLAY") != TOTK_KEY_ALWAYS ||
+        totk_key_layer_of(NULL) != TOTK_KEY_ALWAYS) {
+        failures++; fprintf(stderr, "the key -> layer table is not what main.m and the tests expect\n");
+    }
+    /* The in-game button: the preset layer saves 30 / 60 in its own row; the custom layer leaves the pane's cap alone. */
+    if (!totk_frame_button_key(0) || strcmp(totk_frame_button_key(0), "TOTK_PHONE_FPS") || totk_frame_button_key(1) ||
+        totk_frame_button_target(0) != 30 || totk_frame_button_target(1) != 60) {
+        failures++; fprintf(stderr, "the in-game frame-rate button mapping is wrong\n");
     }
 
     /* The values themselves belong to Root.plist (test_ios_settings.py compares them); here only that the defaults are

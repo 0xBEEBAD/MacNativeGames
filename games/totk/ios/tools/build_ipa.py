@@ -7,6 +7,24 @@ from pathlib import Path
 from compile_seed import METAL_FLAGS
 from xcode_dir import developer_dir
 
+# The iPad Settings rows that only mean something to Tears of the Kingdom: its picture modes and scene sizes, the Full
+# HD switch and MetalFX. Breath of the Wild's pane keeps the rows both games share (language, frame rate, overlays,
+# controllers, keyboard, saves, debug); tests/test_ios_packaging.py checks that each row here is gone from its pane.
+TOTK_ONLY_SETTING_KEYS = ('TOTK_DOCKED', 'TOTK_CUSTOM_PICTURE', 'TOTK_IOS_PICTURE_MODE', 'TOTK_RENDER_RES',
+                          'TOTK_FPS_CAP', 'TOTK_MFX_UPSCALE', 'TOTK_TAA')
+
+def settings_without_totk(root):
+    """The pane for Breath of the Wild, in place: the Tears-of-the-Kingdom-only rows, and any group they leave empty."""
+    specs=[s for s in root['PreferenceSpecifiers'] if s.get('Key') not in TOTK_ONLY_SETTING_KEYS]
+    kept=[]
+    for i,s in enumerate(specs):
+        if s.get('Type')=='PSGroupSpecifier':
+            nxt=specs[i+1] if i+1<len(specs) else None
+            if nxt is None or nxt.get('Type')=='PSGroupSpecifier': continue
+        kept.append(s)
+    root['PreferenceSpecifiers']=kept
+    return root
+
 def run(args, cwd, log, env):
     log.parent.mkdir(parents=True,exist_ok=True)
     with log.open('w') as f:
@@ -100,11 +118,9 @@ def main():
     if botw:   # game_patches_botw.c instead of both Tears of the Kingdom files; GAME_BOTW for the runtime and the graphics layer
         project=project.replace('          - game_patches_botw.c','          - game_patches.c\n          - game_patches_v143.c')
         project=project.replace('-I../build\n','-I../build -DGAME_BOTW=1 -DGAME_'+a.version.upper()+'=1\n')
-        # The Settings pane without Tears of the Kingdom's Full HD switch (main.m reads it for that game only).
+        # The Settings pane without the Tears-of-the-Kingdom-only rows (build_ipa.py's table above).
         settings=gen/'Settings.bundle'; shutil.rmtree(settings,ignore_errors=True); shutil.copytree(ios/'Settings.bundle',settings)
-        root=plistlib.loads((settings/'Root.plist').read_bytes()); specs=root['PreferenceSpecifiers']
-        at=next(i for i,s in enumerate(specs) if s.get('Key')=='TOTK_DOCKED')
-        del specs[at-1:at+1]   # the switch and its group
+        root=settings_without_totk(plistlib.loads((settings/'Root.plist').read_bytes()))
         (settings/'Root.plist').write_bytes(plistlib.dumps(root))
         project=project.replace('      - Settings.bundle','      - path: Gen/Settings.bundle',1)
     elif a.version=='v143': project=project.replace('          - loader.c','          - loader.c\n          - game_patches.c')

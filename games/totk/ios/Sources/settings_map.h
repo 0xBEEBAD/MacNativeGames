@@ -36,3 +36,13 @@ int totk_preset_frame_env_build(const char *fps, totk_frame_env *out);
 
 const char *totk_picture_mode_default(void);
 const char *totk_frame_cap_default(void);
+
+/* Which layer of the pane owns a key. ALWAYS: the pane's other rows (overlays, controllers, ...), handed over whatever
+   the switch says. A key that moves to a layer must be listed here, so main.m's filter and the tests share one table. */
+typedef enum { TOTK_KEY_ALWAYS, TOTK_KEY_PRESET, TOTK_KEY_CUSTOM } totk_key_layer;
+totk_key_layer totk_key_layer_of(const char *key);
+
+/* The in-game frame-rate button (touch_pad.m). The preset layer saves the choice under its own row; the custom layer
+   keeps the cap in the pane, so the button only holds 30 until the next launch and saves nothing (NULL). */
+const char *totk_frame_button_key(int custom);
+int totk_frame_button_target(int held30);   /* 30 or the normal rate (60); the runtime only knows 30 or not-30 */

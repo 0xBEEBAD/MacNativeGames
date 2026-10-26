@@ -45,7 +45,9 @@ int totk_preset_env_build(int docked, totk_preset_env *out) {
     return 1;
 }
 
-/* The preset row's "60" is the uncapped path (ceiling: the display's rate); "30" holds 30 as the phone does. */
+/* The preset row's "60" is NOT the custom cap's "60": the preset leaves the pacing to the uncapped path (ceiling: the
+   display's rate), while the custom 60 paces the display link at 60. So the preset cannot reuse totk_frame_env_build,
+   whose 60 means the fixed pacing. "30" is the same hold in both. */
 int totk_preset_frame_env_build(const char *fps, totk_frame_env *out) {
     if (!fps) return 0;
     if (!strcmp(fps, "30")) *out = (totk_frame_env){NULL, "30"};
@@ -53,6 +55,22 @@ int totk_preset_frame_env_build(const char *fps, totk_frame_env *out) {
     else return 0;
     return 1;
 }
+
+/* The keys the pane's layers own. Every other pane row is handed over whichever layer is active. */
+static const struct { const char *key; totk_key_layer layer; } LAYERS[] = {
+    {"TOTK_DOCKED",           TOTK_KEY_PRESET},
+    {"TOTK_PHONE_FPS",        TOTK_KEY_PRESET},
+    {"TOTK_IOS_PICTURE_MODE", TOTK_KEY_CUSTOM},
+    {"TOTK_RENDER_RES",       TOTK_KEY_CUSTOM},
+    {"TOTK_FPS_CAP",          TOTK_KEY_CUSTOM},
+};
+totk_key_layer totk_key_layer_of(const char *key) {
+    if (key) for (unsigned i = 0; i < sizeof LAYERS / sizeof LAYERS[0]; i++) if (!strcmp(LAYERS[i].key, key)) return LAYERS[i].layer;
+    return TOTK_KEY_ALWAYS;
+}
+
+const char *totk_frame_button_key(int custom) { return custom ? NULL : "TOTK_PHONE_FPS"; }
+int totk_frame_button_target(int held30) { return held30 ? 60 : 30; }
 
 /* 720p with the 960x540 scene is the combination that keeps 60 fps the longest on an iPad before the SoC throttles,
    and it is the coolest (measured 2026-10-23: GPU 12.9 ms at 960x540 against 26.2 ms at 1280x720 on the same draw

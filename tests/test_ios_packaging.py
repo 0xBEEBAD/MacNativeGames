@@ -104,11 +104,41 @@ class FullHD(unittest.TestCase):
         table = preset.group(0) if preset else ''
         for value in ('"docked"', '"1080"', '"1600x900"'):
             self.assertIn(value, table)
-        # Breath of the Wild has no docked settings: main.m keeps it handheld whatever the pane says.
-        self.assertIn('#ifndef GAME_BOTW', main)
+        # Breath of the Wild keeps its handheld operation mode: the exception lives inside one helper, so neither branch
+        # repeats the #ifndef. The only other site is visionOS's own platform default.
+        self.assertIn('#ifndef GAME_BOTW\n    setenv("TOTK_OPERATION_MODE", mode, 1);\n#else\n    (void)mode;', main)
+        vision = 'setenv("TOTK_OPERATION_MODE","docked",1);'
+        self.assertIn(vision, main)
+        self.assertEqual(main.replace(vision, '').count('setenv("TOTK_OPERATION_MODE",'), 2,
+                         'the two operation-mode sites are the helper\'s two branches')
+        self.assertIn("'      - path: Gen/Settings.bundle'", (TOOLS/'build_ipa.py').read_text())
+
+    def test_botw_pane_drops_totk_only_rows(self):
+        import plistlib
+        root = plistlib.loads((TOOLS.parent/'Settings.bundle/Root.plist').read_bytes())
+        build_ipa.settings_without_totk(root)
+        specs = root['PreferenceSpecifiers']
+        keys = {s['Key'] for s in specs if 'Key' in s}
+        for key in build_ipa.TOTK_ONLY_SETTING_KEYS:
+            self.assertNotIn(key, keys)
+        for key in ('TOTK_LANG', 'TOTK_PHONE_FPS', 'TOTK_FPS_OVERLAY', 'TOTK_SHADER_OVERLAY', 'TOTK_DEBUG_LOG'):
+            self.assertIn(key, keys)
+        # A group whose rows were all removed must not stay behind as an empty header.
+        for i, spec in enumerate(specs):
+            if spec.get('Type') == 'PSGroupSpecifier':
+                self.assertLess(i + 1, len(specs), spec.get('Title'))
+                self.assertNotEqual(specs[i+1].get('Type'), 'PSGroupSpecifier', spec.get('Title'))
+
+    def test_export_scene_is_a_pane_value(self):
+        # build_ipa.py embeds one scene size so the patch exists in the exported code; the pane's row must offer it, or
+        # the embedded patch and the panel disagree about what the device may select.
+        import plistlib, re
         build = (TOOLS/'build_ipa.py').read_text()
-        self.assertIn("s.get('Key')=='TOTK_DOCKED'", build)
-        self.assertIn("'      - path: Gen/Settings.bundle'", build)
+        match = re.search(r"TOTK_RENDER_RES='(\d+x\d+)'", build)
+        self.assertIsNotNone(match, 'the export scene size is missing')
+        values = plistlib.loads((TOOLS.parent/'Settings.bundle/Root.plist').read_bytes())
+        scene = [s for s in values['PreferenceSpecifiers'] if s.get('Key') == 'TOTK_RENDER_RES'][0]
+        self.assertIn(match.group(1) if match else '', scene['Values'])
 
 
 if __name__ == '__main__':
