@@ -103,5 +103,30 @@ class FullHD(unittest.TestCase):
         self.assertIn("'      - path: Gen/Settings.bundle'", build)
 
 
+
+class StartScreen(unittest.TestCase):
+    """The start screen (ios/Sources/start_screen.m): the game starts from its button, the picture and frame rate are
+    applied then (apply_display_settings in main.m), the picture row only where the Settings pane has Full HD."""
+    def test_boots_from_the_start_screen_with_the_settings_applied_there(self):
+        import re
+        ios = TOOLS.parent
+        main = (ios/'Sources/main.m').read_text()
+        self.assertIn('#import "start_screen.h"', main)
+        start = re.search(r'TOTKStartView alloc\] initWithFrame:self\.view\.bounds onStart:\^\{(.*?)\}\]\];', main, re.S)
+        self.assertTrue(start, 'the start screen before the boot')
+        body = start.group(1)
+        self.assertLess(body.index('apply_display_settings()'), body.index('runtime_ios_sync_drawable'))
+        self.assertLess(body.index('runtime_ios_sync_drawable'), body.index('boot]'))
+        finish = main.index('- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:')
+        self.assertNotIn('boolForKey:@"TOTK_DOCKED"', main[finish:], 'Full HD is applied when the game starts, not at launch')
+        self.assertNotIn('stringForKey:@"TOTK_PHONE_FPS"', main[finish:])
+
+    def test_shows_only_what_the_settings_pane_offers_and_writes_the_same_defaults(self):
+        screen = (TOOLS.parent/'Sources/start_screen.m').read_text()
+        self.assertIn('settingsPaneHas:@"TOTK_DOCKED"', screen)
+        for key in ('forKey:@"TOTK_DOCKED"', 'forKey:@"TOTK_PHONE_FPS"'):
+            self.assertIn(key, screen)
+        self.assertNotIn('PLAYSHELF', screen.upper(), 'no launcher name on the game\'s screen')
+
 if __name__ == '__main__':
     unittest.main()

@@ -12,6 +12,7 @@
 #include "runtime.h"
 #include "dmsh_chain.h"
 #import "touch_pad.h"
+#import "start_screen.h"
 
 int totk_host_main(int argc, char **argv);
 void runtime_ios_attach_layer(CAMetalLayer *layer, UIView *host);
@@ -75,6 +76,30 @@ static void *run_host(void *unused) { (void)unused; return (void *)(intptr_t)tot
 /* Key 1's settings panel is Mac only (runtime/frontend.m). */
 void runtime_settings_toggle(void) {}
 
+#if !TARGET_OS_VISION
+/* The picture and the frame rate, from the defaults the Settings app and the start screen (start_screen.m)
+   write; applied just before the game thread starts, so the start screen's choice counts. */
+static void apply_display_settings(void) {
+    /* Settings › Full HD (docked), Tears of the Kingdom only, off by default (a Vision Pro contributor's patch, user
+       2026-10-25): the game's docked settings as the Vision Pro build uses them, 1920x1080 output on a 1080-row drawable
+       with the scene at 1600x900 (1.4.3 renders 960x540 on the phone otherwise, game_patches_v143.c render_res). Off is the
+       handheld 1280x720 the phones were tested at. The Settings pane of Breath of the Wild has no such switch
+       (build_ipa.py). */
+#ifndef GAME_BOTW
+    if ([NSUserDefaults.standardUserDefaults boolForKey:@"TOTK_DOCKED"]) {
+        setenv("TOTK_OPERATION_MODE","docked",1);
+        setenv("TOTK_IOS_DRAWABLE_H","1080",0);
+        setenv("TOTK_RENDER_RES","1600x900",0);
+        fprintf(stderr, "[totk] Settings › Full HD: docked, 1920x1080 output, 1600x900 scene\n");
+    } else
+#endif
+    setenv("TOTK_OPERATION_MODE","handheld",1);
+    // Frame rate: Settings.bundle › TOTK_PHONE_FPS, or the 60 / 30 button of the touch controls, which saves it here too.
+    NSString *fps = [NSUserDefaults.standardUserDefaults stringForKey:@"TOTK_PHONE_FPS"];
+    if ([fps isEqualToString:@"30"]) setenv("TOTK_PHONE_FPS","30",0);
+}
+#endif
+
 @interface TOTKMetalView : UIView @end
 @implementation TOTKMetalView
 + (Class)layerClass { return CAMetalLayer.class; }
@@ -111,6 +136,19 @@ void runtime_settings_toggle(void) {}
         runtime_boot_status(zh ? "无法开始游戏" : "Cannot start the game", g_no_game_data.UTF8String);
         return;
     }
+#if TARGET_OS_VISION
+    [self boot];
+#else
+    __weak TOTKGameController *weak = self;
+    [self.view addSubview:[[TOTKStartView alloc] initWithFrame:self.view.bounds onStart:^{
+        apply_display_settings();
+        runtime_ios_sync_drawable(weak.gameView);   // the drawable follows the chosen picture (TOTK_IOS_DRAWABLE_H)
+        [weak boot];
+    }]];
+#endif
+}
+- (void)boot {
+    BOOL zh = [NSLocale.preferredLanguages.firstObject hasPrefix:@"zh"];
     if (g_seed_pack) {   // shaders installed as a pack: unpack once, on screen, then start (not on the main thread: a long launch is killed)
         static const char *stage_zh = "正在准备着色器（更新后只做一次）", *stage_en = "Preparing the shaders (once after an update)";
         const char *stage = zh ? stage_zh : stage_en;
@@ -279,29 +317,13 @@ static void audio_observe(void) {
     setenv("TOTK_MFX_UPSCALE","0",0);
     setenv("TOTK_FPS_OVERLAY","0",0);
 #else
-    /* Settings › Full HD (docked), Tears of the Kingdom only, off by default (a Vision Pro contributor's patch, user
-       2026-10-25): the game's docked settings as the Vision Pro build uses them, 1920x1080 output on a 1080-row drawable
-       with the scene at 1600x900 (1.4.3 renders 960x540 on the phone otherwise, game_patches_v143.c render_res). Off is the
-       handheld 1280x720 the phones were tested at. The Settings pane of Breath of the Wild has no such switch
-       (build_ipa.py). */
-#ifndef GAME_BOTW
-    if ([NSUserDefaults.standardUserDefaults boolForKey:@"TOTK_DOCKED"]) {
-        setenv("TOTK_OPERATION_MODE","docked",1);
-        setenv("TOTK_IOS_DRAWABLE_H","1080",0);
-        setenv("TOTK_RENDER_RES","1600x900",0);
-        fprintf(stderr, "[totk] Settings › Full HD: docked, 1920x1080 output, 1600x900 scene\n");
-    } else
-#endif
-    setenv("TOTK_OPERATION_MODE","handheld",1);
+    /* The picture and frame rate are applied when the game starts (apply_display_settings), after the start screen. */
 #endif
     // Game language: the Settings app (Settings.bundle › TOTK_LANG) stores the choice in our defaults; empty means the
     // system language, which is what the runtime already follows. iOS 27 does not honour Info.plist LSEnvironment, so
     // the value must be applied here. overwrite=0 keeps devicectl --environment-variables winning when testing from the Mac.
     NSString *lang = [NSUserDefaults.standardUserDefaults stringForKey:@"TOTK_LANG"];
     if (lang.length>0&&lang.length<8) setenv("TOTK_LANG",lang.UTF8String,0);
-    // Frame rate: Settings.bundle › TOTK_PHONE_FPS, or the 60 / 30 button of the touch controls, which saves it here too.
-    NSString *fps = [NSUserDefaults.standardUserDefaults stringForKey:@"TOTK_PHONE_FPS"];
-    if ([fps isEqualToString:@"30"]) setenv("TOTK_PHONE_FPS","30",0);
     setenv("TOTK_ROMFS_PATCHES",[res stringByAppendingPathComponent:@"romfs-patches"].fileSystemRepresentation,1);
     setenv("TOTK_ROMFS_PATCHES_OUT",[res stringByAppendingPathComponent:@"romfs-patches-out"].fileSystemRepresentation,1);
     setenv("TOTK_SHARED_FONTS",[res stringByAppendingPathComponent:@"shared-fonts"].fileSystemRepresentation,1);
