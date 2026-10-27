@@ -58,6 +58,7 @@ int runtime_triggers_available(void) { return fakeTriggersAvailable; }
 int runtime_triggers_locked(void) { return fakeTriggersLocked; }
 int runtime_triggers_choice(void) { return fakeTriggers; }
 void runtime_triggers_choose(int on) { fakeTriggers = !!on; }
+void runtime_triggers_release(void) {}
 /* A window key is the user's input (runtime/input.c user_input): it stops a survey and an auto-load, neither here. */
 void runtime_survey_cancel_user(void) {}
 void runtime_autoload_user_input(void) {}
