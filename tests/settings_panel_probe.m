@@ -119,7 +119,7 @@ static void persistence_probe(const char *action) {
     window.contentView = [[TOTKInputView alloc] initWithFrame:NSMakeRect(0, 0, 1280, 720)];
     if (!strcmp(action, "save")) {
         settings_test_output_init(); settings_test_aspect_init(16.0 / 9); settingsPanel = [TOTKSettingsPanel new];
-        pick(@"Overlay", @"FPS only"); pick(@"Frame interpolation", @"40+40");
+        pick(@"Overlay", @"FPS + playtime"); pick(@"Frame interpolation", @"40+40");
         pick(@"Resolution", @"2K (2560×1440)"); pick(@"Aspect ratio", @"21:9"); flip(@"Edge smoothing", YES);
         assert(fakeLock == 0 && mfx_requested() == MFX_40); return;
     }
