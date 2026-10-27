@@ -34,8 +34,15 @@ void runtime_gamepad_clear(void) {}
 static char savedName[64], savedWord[16];
 void runtime_setting_save(const char *name, const char *word, const char *what) {
     (void)what; snprintf(savedName, sizeof savedName, "%s", name); snprintf(savedWord, sizeof savedWord, "%s", word);
+    const char *dir = getenv("SETTINGS_TEST_DIR"); if (!dir) return;
+    char path[4096]; snprintf(path, sizeof path, "%s/%s", dir, name);
+    FILE *f = fopen(path, "w"); assert(f); assert(fprintf(f, "%s\n", word) > 0); assert(!fclose(f));
 }
-int runtime_setting_word(const char *name, char *word, size_t size) { (void)name; (void)word; (void)size; return 0; }
+int runtime_setting_word(const char *name, char *word, size_t size) {
+    const char *dir = getenv("SETTINGS_TEST_DIR"); if (!dir) return 0;
+    char path[4096]; snprintf(path, sizeof path, "%s/%s", dir, name); FILE *f = fopen(path, "r"); if (!f) return 0;
+    size_t n = fread(word, 1, size - 1, f); word[n] = 0; fclose(f); return 1;
+}
 static int fakeSettingsCapture;
 void runtime_gamepad_text_capture(int on) { fakeSettingsCapture = !!on; }
 /* runtime/hid_feedback.c's and gamepad_feedback.m's rumble, strength and gyro switches without a controller. */
@@ -107,8 +114,36 @@ static void shaped(double ratio) {
 }
 static BOOL switched(NSString *title) { [settingsPanel.timer fire]; return ((NSSwitch *)row(title).control).state == NSControlStateValueOn; }
 
+static void persistence_probe(const char *action) {
+    window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1280, 720) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    window.contentView = [[TOTKInputView alloc] initWithFrame:NSMakeRect(0, 0, 1280, 720)];
+    if (!strcmp(action, "save")) {
+        settings_test_output_init(); settings_test_aspect_init(16.0 / 9); settingsPanel = [TOTKSettingsPanel new];
+        pick(@"Overlay", @"FPS only"); pick(@"Frame interpolation", @"40+40");
+        pick(@"Resolution", @"2K (2560×1440)"); pick(@"Aspect ratio", @"21:9"); flip(@"Edge smoothing", YES);
+        assert(fakeLock == 0 && mfx_requested() == MFX_40); return;
+    }
+    settings_restore_begin();
+    if (!strcmp(action, "corrupt")) {
+        assert(settingsPendingOutput == -1 && settingsPendingAspect == 0 && fakeLock == 0 && mfx_requested() == MFX_OFF);
+        assert(fps_overlay_hud_mode() == HUD_MODE_ALL && !taa_enabled()); return;
+    }
+    assert(fps_overlay_hud_mode() == HUD_MODE_MINIMAL);
+    if (!strcmp(action, "override")) {
+        assert(settingsPendingOutput == -1 && settingsPendingAspect == 0 && mfx_requested() == MFX_MAX && !taa_enabled()); return;
+    }
+    if (!strcmp(action, "lock")) { assert(fakeLock == 60 && mfx_requested() == MFX_OFF); return; }
+    assert(fakeLock == 0 && mfx_requested() == MFX_40 && taa_enabled());
+    assert(settingsPendingOutput == OUTPUT_MODE_NATIVE && settingsPendingAspect > 2.3f);
+    settings_restore_ready(); assert(settingsPendingOutput == OUTPUT_MODE_NATIVE && settingsPendingAspect > 2.3f);
+    settings_test_output_init(); settings_test_aspect_init(16.0 / 9); settings_restore_ready();
+    assert(settingsPendingOutput == -1 && settingsPendingAspect == 0);
+    assert(runtime_output_mode() == OUTPUT_MODE_NATIVE && fabsf(runtime_aspect_ratio() - 21.0f / 9) < 0.001f);
+}
+
 int main(int argc, const char **argv) { @autoreleasepool {
     [NSApplication sharedApplication];
+    if (argc == 2) { persistence_probe(argv[1]); puts("pass: settings persistence"); return 0; }
     setenv("TOTK_OUTPUT_RES", "2560x1440", 1);   /* the native size the resolution row names */
     settings_test_output_init();
     window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1280, 720) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
