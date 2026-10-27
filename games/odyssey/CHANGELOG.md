@@ -139,6 +139,11 @@ size patch, which grows the game's memory heap together with the render target p
   picture at 1600x900, which read as the picture now. It says "Resolution at launch: 2560x1440 (key 3 changes the picture
   while playing)"; key 3's line above it is the picture now. (`odyssey_gfx_present.inc` is included by `nvn_mtl.m`, which
   the Makefile does not list as depending on it: after editing it, touch `nvn_mtl.m` or the build keeps the old object.)
+- With the upscaler on MetalFX, the same block said "Upscaler: MetalFX (off in this build: bilinear)" whenever key 3 was
+  not at its MetalFX step, as if the build lacked MetalFX. MetalFX upscales only at key 3's "MetalFX to the window"; the
+  line now says "(runs only at key 3's "MetalFX to the window"; now bilinear)". In the app: at key 3's "original
+  1600×900" the line carries that note, at "1600×900, MetalFX to the window" it reads "Upscaler: MetalFX" and the HUD
+  says "MetalFX on".
 
 ### Not brought over
 
