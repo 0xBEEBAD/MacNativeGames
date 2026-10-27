@@ -320,19 +320,21 @@ id<MTLTexture> taa_encode(id<MTL4CommandBuffer> cb, id<MTLTexture> src) {
 }
 /* ---- Temporal upscaling (TOTK_MFX_TEMPORAL; see the header) ---- */
 #define UP_CACHE 3   // scalers kept with their outputs, by size: a dynamic-resolution level that comes back needs no build
-typedef struct { id<MTL4FXTemporalScaler> sc; id<MTLTexture> out; NSUInteger w, h, ow, oh; MTLPixelFormat fmt; uint64_t used; double ms, warm_ms; } up_t;
+typedef struct { id<MTL4FXTemporalScaler> sc; id<MTLTexture> out; NSUInteger w, h, ow, oh; MTLPixelFormat fmt; uint64_t used, enc_ns; double ms, warm_ms; } up_t;
 static struct {
     up_t cache[UP_CACHE]; int ncache, cur;                          // the replay thread's; cur: the scaler in use, -1 none
     id<MTLTexture> mv, react, dh[2]; NSUInteger iw, ih; int dh_i;   // at the scene's size, shared by the kept scalers
     id<MTLRenderPipelineState> copy_ps[2]; MTLPixelFormat copy_fmt[2]; id<MTL4ArgumentTable> cargs[TAA_SLOTS];
     NSUInteger cw, ch;                                              // the content of the last frame upscaled
     const char *reset_why;                                          // why the history is gone, for the next frame's log line
-    uint64_t done, resets, missing, waited, declined, switches, builds, bad_until_ms;
+    uint64_t done, resets, missing, waited, declined, switches, builds, rewarms, bad_until_ms;
     uint64_t site_frame; int site_seen;                             // the last frame the replay found an upscale draw it could take
     up_t bad;                                                       // the size of a build that failed: not tried again for a while
 } u = {.cur = -1};
+#define UP_COLD_NS 1000000000ull   // a kept scaler idle this long is encoded again in the background before its next frame (up_rewarm)
 static os_unfair_lock u_lock = OS_UNFAIR_LOCK_INIT;
 static struct { int busy, has; up_t b; const char *why; } u_pend;   // the background build and its result (u_lock)
+static struct { int busy; const void *sc; uint64_t done_ns; double ms; } u_warm;   // the background warm-up of a kept scaler (u_lock)
 static _Atomic int g_up_on = -1;
 static uint64_t up_now_ms(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1000000; }
 
@@ -391,14 +393,16 @@ static MTLFXTemporalScalerDescriptor *up_desc(NSUInteger w, NSUInteger h, MTLPix
    scaler up at its first encode (about 14 ms of CPU on the encoding thread, 2026-10-26 probe): done here, that is not
    the replay's (a size change showed one 33 ms frame with 16 ms of submit time without it). The textures are throwaway;
    the first real frame resets the history anyway. */
-static double up_warm(id<MTL4FXTemporalScaler> sc, id<MTLTexture> out, NSUInteger w, NSUInteger h, MTLPixelFormat f) {
+static double up_warm(id<MTL4FXTemporalScaler> sc, id<MTLTexture> out, NSUInteger w, NSUInteger h, MTLPixelFormat f,
+                      id<MTLTexture> mv, id<MTLTexture> react) {   // mv, react: the replay's own, when not in use (up_rewarm)
     static id<MTL4CommandQueue> q; static id<MTL4CommandAllocator> al;
     if (!q) { q = [g.dev newMTL4CommandQueue]; al = [g.dev newCommandAllocator]; }
     id<MTLResidencySet> rs = [g.dev newResidencySetWithDescriptor:[MTLResidencySetDescriptor new] error:NULL];
     MTLPixelFormat fs[4] = {f, MTLPixelFormatDepth32Float, MTLPixelFormatRG16Float, MTLPixelFormatR16Float};
     MTLTextureUsage us[4] = {sc.colorTextureUsage, sc.depthTextureUsage, sc.motionTextureUsage, react_usage(sc)};
-    id<MTLTexture> t[4];
+    id<MTLTexture> t[4] = {nil, nil, mv, react};
     for (int i = 0; i < 4; i++) {
+        if (t[i]) { [rs addAllocation:t[i]]; continue; }
         MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:fs[i] width:w height:h mipmapped:NO];
         td.usage = us[i] | MTLTextureUsageShaderRead; td.storageMode = MTLStorageModePrivate;
         if (!(t[i] = [g.dev newTextureWithDescriptor:td])) return -1;
@@ -440,15 +444,21 @@ static void up_build(up_t b) {
             td.usage = b.sc.outputTextureUsage | MTLTextureUsageShaderRead; td.storageMode = MTLStorageModePrivate;
             b.out = [g.dev newTextureWithDescriptor:td];
             if (!b.out) why = "output texture not created";
-            else if ((b.warm_ms = up_warm(b.sc, b.out, b.w, b.h, b.fmt)) < 0) why = "first encode failed";
+            else if ((b.warm_ms = up_warm(b.sc, b.out, b.w, b.h, b.fmt, nil, nil)) < 0) why = "first encode failed";
         }
     }
     b.ms = (double)(up_now_ms() - t0);
     if (why) { b.sc = nil; b.out = nil; }
     os_unfair_lock_lock(&u_lock); u_pend.b = b; u_pend.why = why; u_pend.has = 1; u_pend.busy = 0; os_unfair_lock_unlock(&u_lock);
 }
-static int up_known(NSUInteger w, NSUInteger h) {   // a kept scaler takes a scene of this size (taa_pass: no jitter for one that does not)
-    for (int i = 0; i < u.ncache; i++) if (u.cache[i].w == w && u.cache[i].h == h) return 1;
+static int up_rewarm_on(void) {   // TOTK_MFX_TEMPORAL_REWARM=0: a kept scaler comes back without the warm-up (up_rewarm), for comparisons
+    static int v = -1;
+    if (v < 0) { const char *e = getenv("TOTK_MFX_TEMPORAL_REWARM"); v = !(e && !strcmp(e, "0")); if (!v) TLOG("temporal upscale: kept scalers come back without a warm-up (TOTK_MFX_TEMPORAL_REWARM=0)"); }
+    return v;
+}
+static int up_cold(const up_t *e) { return up_rewarm_on() && e->enc_ns && clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - e->enc_ns > UP_COLD_NS; }
+static int up_known(NSUInteger w, NSUInteger h) {   // a kept scaler takes a scene of this size, now (taa_pass: no jitter for one that does not)
+    for (int i = 0; i < u.ncache; i++) if (u.cache[i].w == w && u.cache[i].h == h) return !up_cold(&u.cache[i]);
     return 0;
 }
 static int up_same(const up_t *e, NSUInteger w, NSUInteger h, MTLPixelFormat f, NSUInteger ow, NSUInteger oh) {
@@ -469,6 +479,9 @@ static void up_adopt(void) {   // a finished build goes into the kept scalers (t
     if (slot == UP_CACHE) {
         slot = -1;
         for (int i = 0; i < UP_CACHE; i++) if (i != u.cur && (slot < 0 || u.cache[i].used < u.cache[slot].used)) slot = i;
+        os_unfair_lock_lock(&u_lock);
+        if (u_warm.sc == (__bridge const void *)u.cache[slot].sc) u_warm.sc = NULL;   // a warm-up done for it is not the new one's
+        os_unfair_lock_unlock(&u_lock);
         keep_old(u.cache[slot].sc); keep_old(u.cache[slot].out);   // the GPU may still use them for TAA_OLD frames
     } else u.ncache++;
     b.used = g.frame; u.cache[slot] = b; u.builds++;
@@ -478,12 +491,51 @@ static void up_adopt(void) {   // a finished build goes into the kept scalers (t
          NSStringFromClass([b.sc class]).UTF8String, b.sc.inputContentMinScale, b.sc.inputContentMaxScale,
          reactive_on() ? "from depth" : "off (TOTK_TAA_REACTIVE=0)");
 }
-/* 1 when the scaler for this input and canvas is current; otherwise it is built in the background (0 meanwhile). */
+static dispatch_queue_t up_queue(void) {   // the background builds and warm-ups, one at a time
+    static dispatch_queue_t q;
+    if (!q) q = dispatch_queue_create("totk.taa.upscaler", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
+    return q;
+}
+/* A kept scaler that has not run for UP_COLD_NS (a menu, the other canvas size). Its first frame back cost the game 17-38 ms
+   (2026-10-27, prologue: after 10 s menus and 5 s at the other canvas size, MetalFX's Neural Engine and GPU networks alike;
+   none after 2 s menus): the replay waited in the submission, or the GPU on the queue, while the GPU work itself was as
+   usual. A new scaler, whose first encode is made in the background, has no such frame. So a cold one is encoded once more
+   in the background first, with the replay's motion and mask textures when they fit (they idled as long); the game's own
+   path draws meanwhile, a few frames whose history would be reset anyway. 1 when it is warm again. */
+static int up_rewarm(int i) {
+    up_t e = u.cache[i]; const void *key = (__bridge const void *)e.sc; uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    os_unfair_lock_lock(&u_lock);
+    int busy = u_warm.busy, warm = u_warm.sc == key && u_warm.done_ns && now - u_warm.done_ns < UP_COLD_NS; double ms = u_warm.ms;
+    if (!busy && !warm) { u_warm.busy = 1; u_warm.sc = key; u_warm.done_ns = 0; }
+    os_unfair_lock_unlock(&u_lock);
+    if (warm) {   // this scaler, encoded in the background a moment ago
+        u.cache[i].enc_ns = now; u.rewarms++;
+        if (u.rewarms <= 20) TLOG("temporal upscaler %lux%lu -> %lux%lu warm again at frame %llu (the background encode took %.1f ms)",
+                                  (unsigned long)e.w, (unsigned long)e.h, (unsigned long)e.ow, (unsigned long)e.oh, (unsigned long long)g.frame, ms);
+        return 1;
+    }
+    if (busy) return 0;
+    id<MTLTexture> mv = u.mv && u.iw == e.w && u.ih == e.h ? u.mv : nil, react = mv ? u.react : nil;
+    if (u.rewarms < 20) TLOG("temporal upscaler %lux%lu -> %lux%lu idle %.0f ms: encoding it again in the background from frame %llu; the game's own upscale meanwhile",
+                             (unsigned long)e.w, (unsigned long)e.h, (unsigned long)e.ow, (unsigned long)e.oh,
+                             (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - e.enc_ns) / 1e6, (unsigned long long)g.frame);
+    dispatch_async(up_queue(), ^{
+        up_warm(e.sc, e.out, e.w, e.h, e.fmt, mv, react);   // a failed one only leaves the slow frame
+        uint64_t end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+        os_unfair_lock_lock(&u_lock); u_warm.busy = 0; u_warm.done_ns = end; u_warm.ms = (end - now) / 1e6; os_unfair_lock_unlock(&u_lock);
+    });
+    return 0;
+}
+/* 1 when the scaler for this input and canvas is current; otherwise it is built (or warmed) in the background (0 meanwhile). */
 static int ensure_up(id<MTLTexture> src, id<MTLTexture> dst) {
     NSUInteger w = src.width, h = src.height, ow = dst.width, oh = dst.height; MTLPixelFormat f = src.pixelFormat;
-    if (u.cur >= 0 && up_same(&u.cache[u.cur], w, h, f, ow, oh)) { u.cache[u.cur].used = g.frame; return 1; }
+    if (u.cur >= 0 && up_same(&u.cache[u.cur], w, h, f, ow, oh)) {
+        if (up_cold(&u.cache[u.cur]) && !up_rewarm(u.cur)) return 0;
+        u.cache[u.cur].used = g.frame; return 1;
+    }
     up_adopt();
     for (int i = 0; i < u.ncache; i++) if (up_same(&u.cache[i], w, h, f, ow, oh)) {
+        if (up_cold(&u.cache[i]) && !up_rewarm(i)) return 0;
         if (u.cur >= 0) {
             u.switches++;
             if (u.switches <= 20) TLOG("temporal upscaler: back to the kept %lux%lu -> %lux%lu scaler at frame %llu (history reset)",
@@ -494,14 +546,12 @@ static int ensure_up(id<MTLTexture> src, id<MTLTexture> dst) {
     }
     if (u.bad_until_ms && up_now_ms() < u.bad_until_ms && up_same(&u.bad, w, h, f, ow, oh)) return 0;
     if (![MTLFXTemporalScalerDescriptor supportsMetal4FX:g.dev]) { g.failed = 1; TLOG("this GPU has no Metal 4 MetalFX temporal scaler"); return 0; }
-    static dispatch_queue_t q;
-    if (!q) q = dispatch_queue_create("totk.taa.upscaler", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
     os_unfair_lock_lock(&u_lock); int start = !u_pend.busy && !u_pend.has; if (start) u_pend.busy = 1; os_unfair_lock_unlock(&u_lock);
     if (start) {   // a build for another size still running ends first; the next frame asks again
         up_t b = {.w = w, .h = h, .ow = ow, .oh = oh, .fmt = f};
         TLOG("temporal upscaler %lux%lu -> %lux%lu: building in the background from frame %llu; the game's own upscale (or MetalFX spatial) meanwhile",
              (unsigned long)w, (unsigned long)h, (unsigned long)ow, (unsigned long)oh, (unsigned long long)g.frame);
-        dispatch_async(q, ^{ up_build(b); });
+        dispatch_async(up_queue(), ^{ up_build(b); });
     }
     return 0;
 }
@@ -603,7 +653,7 @@ int tup_encode(id<MTL4CommandBuffer> cb, id<MTLTexture> color, NSUInteger cw, NS
     const char *why = !g.prev_ok ? (u.reset_why ? u.reset_why : "the first frame") : g.encoded_frame != g.frame ?
                       "a frame without the upscale before (menu, loading, scaler being built)" : camera_cut() ? "a camera cut" : NULL;
     int reset = why != NULL, content = cw != u.cw || ch != u.ch;
-    if (reset && ++u.resets <= 40) TLOG("temporal upscale: history reset at frame %llu: %s", (unsigned long long)g.frame, why);
+    if (reset) u.resets++;
     if (content) TLOG("temporal upscale: content %lux%lu of the %lux%lu scene -> %lux%lu at frame %llu", (unsigned long)cw, (unsigned long)ch,
                       (unsigned long)color.width, (unsigned long)color.height, (unsigned long)dst.width, (unsigned long)dst.height, (unsigned long long)g.frame);
     u.reset_why = NULL;
@@ -637,9 +687,15 @@ int tup_encode(id<MTL4CommandBuffer> cb, id<MTLTexture> color, NSUInteger cw, NS
     sc.inputContentWidth = cw; sc.inputContentHeight = ch;
     sc.jitterOffsetX = jx; sc.jitterOffsetY = jy;
     sc.motionVectorScaleX = 1; sc.motionVectorScaleY = 1; sc.depthReversed = NO; sc.reset = reset; sc.fence = g.fence;
+    uint64_t t0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     [sc encodeToCommandBuffer:cb];
+    uint64_t t1 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     sc.colorTexture = nil; sc.depthTexture = nil; sc.motionTexture = nil; sc.outputTexture = nil; sc.reactiveMaskTexture = nil;
     if (mark) mark('Y');
+    if (reset && u.resets <= 40)
+        TLOG("temporal upscale: history reset at frame %llu: %s (encode %.2f ms CPU, this scaler idle %.0f ms)", (unsigned long long)g.frame, why,
+             (t1 - t0) / 1e6, e->enc_ns ? (t0 - e->enc_ns) / 1e6 : -1.0);
+    e->enc_ns = t1;
     /* Into the canvas, every pixel (the game's upscale draw would have written them all; the UI comes after). The pass
        starts after the scaler's work; the replay's next encoder starts with a queue barrier of its own. */
     MTL4RenderPassDescriptor *rp = [MTL4RenderPassDescriptor new];
@@ -674,10 +730,10 @@ int tup_encode(id<MTL4CommandBuffer> cb, id<MTLTexture> color, NSUInteger cw, NS
 void tup_stats(char *out, size_t n) {
     const up_t *e = u.cur >= 0 ? &u.cache[u.cur] : NULL;
     snprintf(out, n, "frame %llu: temporally upscaled %llu (%lux%lu -> %lux%lu), history resets %llu, without depth or camera %llu, "
-             "waiting for a scaler %llu, declined %llu, scalers built %llu, switches between kept scalers %llu",
+             "waiting for a scaler %llu, declined %llu, scalers built %llu, switches between kept scalers %llu, warmed again %llu",
              (unsigned long long)g.frame, (unsigned long long)u.done, (unsigned long)u.cw, (unsigned long)u.ch, (unsigned long)(e ? e->ow : 0),
              (unsigned long)(e ? e->oh : 0), (unsigned long long)u.resets, (unsigned long long)u.missing, (unsigned long long)u.waited,
-             (unsigned long long)u.declined, (unsigned long long)u.builds, (unsigned long long)u.switches);
+             (unsigned long long)u.declined, (unsigned long long)u.builds, (unsigned long long)u.switches, (unsigned long long)u.rewarms);
 }
 
 void taa_frame_end(void) {
