@@ -135,6 +135,10 @@ size patch, which grows the game's memory heap together with the render target p
   0xc6c00000", the game starts with "3D scene 2560x1440", and key 3 steps 1600×900 → MetalFX → 1920×1080 → 2560×1440.
   Game frames at those steps: mean absolute Laplacian 9.24 (start) / 4.79 / 4.73 / 5.59 / 9.39. 60 fps (p99 16.67 ms
   in all 42 windows of 300 frames), 0 FATAL.
+- The overlay's "Picture (set in the window before the game)" block showed "Resolution: 2560x1440" while key 3 had the
+  picture at 1600x900, which read as the picture now. It says "Resolution at launch: 2560x1440 (key 3 changes the picture
+  while playing)"; key 3's line above it is the picture now. (`odyssey_gfx_present.inc` is included by `nvn_mtl.m`, which
+  the Makefile does not list as depending on it: after editing it, touch `nvn_mtl.m` or the build keeps the old object.)
 
 ### Not brought over
 
