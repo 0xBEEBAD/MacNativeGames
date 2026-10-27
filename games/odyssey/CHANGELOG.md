@@ -121,6 +121,21 @@ These are the `games/odyssey` lines of #791, which makes the same change in all 
   left the cache; the sweep took 0.11 to 0.27 ms. With the old code a view left only with its allocation, so those
   views would have stayed. The longest frame per 300 after loading was 25 to 30 ms, flat to the end; 0 FATAL.
 
+### 2026-10-27: the settings window names the update and offers 2560 × 1440
+
+The settings window (#910) said "Version 1.3.0" for every build, and its resolution list stopped at 2240 × 1260, because
+2400 × 1350 and 2560 × 1440 had stopped the game in its SDK. Since #1076 a picked resolution goes through key 3's render
+size patch, which grows the game's memory heap together with the render target pool, so 2560 × 1440 runs too.
+
+- `scripts/odyssey_launcher_ui.m` reads the version from `Resources/game-version.txt` (written from the update's Control
+  data; 1.3.0 and 1.4.1 share their executables). The resolution list, `odyssey_gfx.h` and `package_native_app.py` (the
+  quality table made at packaging) take 2560 × 1440.
+- In the app (1.4.1, a copy of a save in the Wooded Kingdom): the window shows "Version 1.4.1" and 2560 × 1440; picked,
+  the log says "docked render size 2560x1440 (from TOTK_RENDER_RES)", "render target pool 160 MiB", "memory heap
+  0xc6c00000", the game starts with "3D scene 2560x1440", and key 3 steps 1600×900 → MetalFX → 1920×1080 → 2560×1440.
+  Game frames at those steps: mean absolute Laplacian 9.24 (start) / 4.79 / 4.73 / 5.59 / 9.39. 60 fps (p99 16.67 ms
+  in all 42 windows of 300 frames), 0 FATAL.
+
 ### Not brought over
 
 - A reminder to rebuild once enough new shader notes have collected. In the port it comes from, a rebuild took the
