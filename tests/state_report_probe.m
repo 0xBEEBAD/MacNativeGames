@@ -144,6 +144,11 @@ int main(int argc, char **argv) {
             for (double t = 0; t < 0.8; t += 1 / 120.0) { frame(120, SR_CAP_UNCAPPED_INTERVAL, 0, 1); usleep(8333); }
             drain();
             expect(@[last(G)[1]], @[@"1920x1080 | 21:9 | cap 120/game interval | present thread (display link stalled) | fullscreen@160Hz"], "aspect, path");
+            fake_pic = (totk_sr_gfx){.out_w = 2560, .out_h = 1440, .temporal = 1};   // TOTK_MFX_TEMPORAL
+            for (double t = 0; t < 0.8; t += 1 / 120.0) { frame(120, SR_CAP_UNCAPPED_INTERVAL, 0, 1); usleep(8333); }
+            drain();
+            expect(@[last(G)[1]], @[@"2560x1440 | MetalFX temporal | cap 120/game interval | fullscreen@160Hz"], "temporal");
+            assert([last(G)[2][@"temporalUpscaling"] isEqualToString:@"on"] && [last(G)[2][@"upscaling"] isEqualToString:@"off"]);
         } else if (!strcmp(scenario, "toggle")) {   // flag state_reporting 0 / 1 within one session
             totk_sr_start("totk", "1.4.3"); drain(); totk_sr_picture(1, 1); run_frames(0.8);
             totk_sr_set(0); drain(); run_frames(0.3);
