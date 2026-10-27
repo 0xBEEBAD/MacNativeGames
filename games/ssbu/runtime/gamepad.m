@@ -141,8 +141,9 @@ static uint64_t gamepad_buttons(GCExtendedGamepad *pad, int by_position) {
    handles is not read twice, and feeds the same physical button bits and stick values as the GameController path. From
    there the player's layout file (controller_map.h) applies unchanged, so face buttons, modes and remapping work the same.
 
-   Usages come from the pad's own descriptor, so nothing here is specific to one model: button usages 1-15, the hat switch,
-   and the X/Y/Z/Rz axes. A pad whose buttons sit elsewhere simply leaves those bits unused. */
+   Usages come from the pad's own descriptor: button usages 1-15 (in the order gamepad_hid_order picks from the pad's
+   name), the hat switch, and the X/Y axes with Z/Rz for the right stick, or Rx/Ry when the pad has those and no Z/Rz (a
+   Switch Pro Controller's simple report). A pad whose buttons sit elsewhere simply leaves those bits unused. */
 typedef struct { int present; uint64_t buttons; int32_t lx, ly, rx, ry; } HIDPadState;
 static HIDPadState hidPad;
 static IOHIDManagerRef hidManager;
@@ -151,6 +152,10 @@ static BOOL hidRefreshPending;
 static unsigned char hidButtons[16];          /* usage 1..15, 1 = pressed */
 static int hidHat = 8;                        /* 0 N, 1 NE, 2 E ... 7 NW; 8 centred */
 static float hidX, hidY, hidZ, hidRz;         /* -1..1, 0 centred */
+static int hidOrder;                          /* gamepad_hid_order of the attached pad */
+static int hidRightRxRy;                      /* its right stick is Rx/Ry */
+static GamepadHidReach hidReach[4];           /* X, Y, right X, right Y; used in the Switch Pro order */
+static float hidReachLogged[4][2];
 
 /* Axes and the hat are scaled from the element's own logical range (after PR #190): pads report 8-bit sticks (0..255),
    16-bit ones (0..65535 or -32768..32767) or a hat numbered from 1. A range the descriptor leaves empty counts as 0..255. */
@@ -167,19 +172,22 @@ static int hid_hat(IOHIDElementRef element, int v) {   /* 8 positions (or 4, eve
 }
 
 /* The same physical bits gamepad_buttons() produces, so the layout file cannot tell the two sources apart. */
+/* The furthest each stick direction has reached, in the log whenever one grew by 0.05 (Switch Pro order only). */
+static void hid_reach_note(void) {
+    int grown = 0;
+    for (int a = 0; a < 4; a++)
+        if (hidReach[a].neg >= hidReachLogged[a][0] + 0.05f || hidReach[a].pos >= hidReachLogged[a][1] + 0.05f) grown = 1;
+    if (!grown) return;
+    for (int a = 0; a < 4; a++) { hidReachLogged[a][0] = hidReach[a].neg; hidReachLogged[a][1] = hidReach[a].pos; }
+    fprintf(stderr, "[totk-input] HID stick reach: left -%.2f/+%.2f, -%.2f/+%.2f; right -%.2f/+%.2f, -%.2f/+%.2f (1 = the HID range's end)\n",
+            hidReach[0].neg, hidReach[0].pos, hidReach[1].neg, hidReach[1].pos, hidReach[2].neg, hidReach[2].pos, hidReach[3].neg, hidReach[3].pos);
+}
+
 static void hid_pad_compute(void) {
-    /* The usages are Switch-style: B at the bottom (1), A on the right (2), Y on the left (4), X at the top (5). Those are
-       positions, so they go in as GameController's buttonA (bottom), buttonB (right), buttonX (left), buttonY (top) and
-       are always taken by position, whatever the maker's name says. */
-    uint64_t buttons = gamepad_face_positions(hidButtons[1], hidButtons[2], hidButtons[4], hidButtons[5], 1);
-    if (hidButtons[14]) buttons |= 1ULL << 4;    /* l3 */
-    if (hidButtons[15]) buttons |= 1ULL << 5;    /* r3 */
-    if (hidButtons[7]) buttons |= 1ULL << 6;     /* l1 */
-    if (hidButtons[8]) buttons |= 1ULL << 7;     /* r1 */
-    if (hidButtons[9]) buttons |= 1ULL << 8;     /* l2 = ZL */
-    if (hidButtons[10]) buttons |= 1ULL << 9;    /* r2 = ZR */
-    if (hidButtons[12]) buttons |= 1ULL << 10;   /* menu = plus (start) */
-    if (hidButtons[11]) buttons |= 1ULL << 11;   /* view = minus (select) */
+    /* The face buttons are Switch-style positions (B bottom, A right, Y left, X top), so they go in as GameController's
+       buttonA (bottom), buttonB (right), buttonX (left), buttonY (top) and are always taken by position, whatever the
+       maker's name says; which usage is which comes from gamepad_hid_order. */
+    uint64_t buttons = gamepad_hid_buttons(hidButtons, hidOrder);
     switch (hidHat) {
     case 0: buttons |= 1ULL << 13; break;
     case 1: buttons |= (1ULL << 13) | (1ULL << 14); break;
@@ -191,12 +199,18 @@ static void hid_pad_compute(void) {
     case 7: buttons |= (1ULL << 12) | (1ULL << 13); break;
     default: break;
     }
+    float lx = hidX, ly = hidY, rx = hidZ, ry = hidRz;
+    if (hidOrder == GAMEPAD_HID_SWITCH_PRO) {   /* sticks that stop short of the HID range (gamepad_hid_reach) */
+        lx = gamepad_hid_reach(&hidReach[0], lx); ly = gamepad_hid_reach(&hidReach[1], ly);
+        rx = gamepad_hid_reach(&hidReach[2], rx); ry = gamepad_hid_reach(&hidReach[3], ry);
+        hid_reach_note();
+    }
     hidPad.present = 1;
     hidPad.buttons = buttons;
-    hidPad.lx = stick_axis(hidX);
-    hidPad.ly = stick_axis(-hidY);    /* HID Y grows downwards, the game's grows upwards */
-    hidPad.rx = stick_axis(hidZ);
-    hidPad.ry = stick_axis(-hidRz);
+    hidPad.lx = stick_axis(lx);
+    hidPad.ly = stick_axis(-ly);    /* HID Y grows downwards, the game's grows upwards */
+    hidPad.rx = stick_axis(rx);
+    hidPad.ry = stick_axis(-ry);
 }
 
 static void hid_value(void *context, IOReturn result, void *sender, IOHIDValueRef value) {
@@ -216,6 +230,10 @@ static void hid_value(void *context, IOReturn result, void *sender, IOHIDValueRe
         hidZ = hid_axis(element, v);
     } else if (page == kHIDPage_GenericDesktop && usage == kHIDUsage_GD_Rz) {
         hidRz = hid_axis(element, v);
+    } else if (hidRightRxRy && page == kHIDPage_GenericDesktop && usage == kHIDUsage_GD_Rx) {
+        hidZ = hid_axis(element, v);
+    } else if (hidRightRxRy && page == kHIDPage_GenericDesktop && usage == kHIDUsage_GD_Ry) {
+        hidRz = hid_axis(element, v);
     } else {
         return;
     }
@@ -231,7 +249,24 @@ static void hid_pad_reset(void) {
     memset(hidButtons, 0, sizeof hidButtons);
     hidHat = 8;
     hidX = hidY = hidZ = hidRz = 0;
+    memset(hidReach, 0, sizeof hidReach);
+    memset(hidReachLogged, 0, sizeof hidReachLogged);
     hidPad = (HIDPadState){0};
+}
+
+/* 1: the pad's right stick is Rx/Ry (it has both and neither Z nor Rz). */
+static int hid_right_rx_ry(IOHIDDeviceRef device) {
+    CFArrayRef elements = IOHIDDeviceCopyMatchingElements(device, NULL, kIOHIDOptionsTypeNone);
+    if (!elements) return 0;
+    int rx = 0, ry = 0, z = 0;
+    for (CFIndex i = 0; i < CFArrayGetCount(elements); i++) {
+        IOHIDElementRef e = (IOHIDElementRef)CFArrayGetValueAtIndex(elements, i);
+        if (IOHIDElementGetUsagePage(e) != kHIDPage_GenericDesktop) continue;
+        uint32_t u = IOHIDElementGetUsage(e);
+        rx |= u == kHIDUsage_GD_Rx; ry |= u == kHIDUsage_GD_Ry; z |= u == kHIDUsage_GD_Z || u == kHIDUsage_GD_Rz;
+    }
+    CFRelease(elements);
+    return rx && ry && !z;
 }
 
 static void hid_pad_detach(void) {
@@ -269,10 +304,15 @@ static void hid_pad_attach(IOHIDDeviceRef device) {
         manufacturer = [(__bridge NSString *)vendor UTF8String];
     }
     hid_pad_reset();
+    hidOrder = gamepad_hid_order(name);
+    hidRightRxRy = hid_right_rx_ry(device);
     IOHIDDeviceRegisterInputValueCallback(device, hid_value, NULL);
     IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
     hidPad.present = 1;
     fprintf(stderr, "[totk-input] HID gamepad connected: %s (%s)\n", name ? name : "unknown", manufacturer ? manufacturer : "unknown");
+    fprintf(stderr, "[totk-input] HID gamepad buttons in the %s order, right stick %s%s\n",
+            hidOrder == GAMEPAD_HID_SWITCH_PRO ? "Switch Pro Controller" : "generic", hidRightRxRy ? "Rx/Ry" : "Z/Rz",
+            hidOrder == GAMEPAD_HID_SWITCH_PRO ? ", sticks scaled to their reach" : "");
     refresh_gamepads();
 }
 
