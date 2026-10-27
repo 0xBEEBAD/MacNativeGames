@@ -1,60 +1,7 @@
 #pragma once
 #import <AppKit/AppKit.h>
+#include "update_check.h"
 #include "../third_party/d2r_gfx/gfx/nvn/include/totk_ui_lang.h"
-
-// Public GitHub metadata only; never downloads or installs an update.
-static BOOL mng_revision(id value) {
-    return [value isKindOfClass:NSString.class] && [value length] == 40 &&
-        [value rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"].invertedSet].location == NSNotFound;
-}
-
-static BOOL mng_relevant_path(id value) {
-    if (![value isKindOfClass:NSString.class]) return NO;
-    NSString *path = value;
-    if ([@[@"md", @"rst"] containsObject:path.pathExtension.lowercaseString]) return NO;
-    if ([path hasPrefix:@"games/totk/ios/"] || [path hasPrefix:@"games/totk/tests/"]) return NO;
-    return [path hasPrefix:@"games/totk/"] || [path hasPrefix:@"vendor/"] ||
-        [path isEqualToString:@"build_app.py"] || [path isEqualToString:@"Makefile"];
-}
-
-static BOOL mng_comparison_has_update(id value) {
-    if (![value isKindOfClass:NSDictionary.class]) return NO;
-    NSDictionary *d = value;
-    if (!([d[@"status"] isEqual:@"ahead"] || [d[@"status"] isEqual:@"diverged"]) || ![d[@"ahead_by"] isKindOfClass:NSNumber.class] ||
-        [d[@"ahead_by"] integerValue] <= 0 || ![d[@"files"] isKindOfClass:NSArray.class]) return NO;
-    for (id f in d[@"files"]) {
-        if (![f isKindOfClass:NSDictionary.class]) continue;
-        if (mng_relevant_path(f[@"filename"]) || mng_relevant_path(f[@"previous_filename"])) return YES;
-    }
-    // GitHub truncates file lists at 300. Avoid silently missing changes beyond that limit.
-    return [d[@"files"] count] >= 300;
-}
-
-static NSDictionary *mng_public_json(NSString *suffix, double deadline) {
-    double remaining = deadline - NSProcessInfo.processInfo.systemUptime;
-    if (remaining <= 0) return nil;
-    NSURL *url = [NSURL URLWithString:[@"https://api.github.com/repos/ly05010419/MacNativeGames/" stringByAppendingString:suffix]];
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:remaining];
-    [request setValue:@"MacNativeGames-update-notice" forHTTPHeaderField:@"User-Agent"];
-    [request setValue:@"application/vnd.github+json" forHTTPHeaderField:@"Accept"];
-    NSURLSessionConfiguration *config = NSURLSessionConfiguration.ephemeralSessionConfiguration;
-    config.timeoutIntervalForResource = remaining;
-    NSURLSession *session = [NSURLSession sessionWithConfiguration:config];
-    dispatch_semaphore_t done = dispatch_semaphore_create(0);
-    __block NSDictionary *result = nil;
-    NSURLSessionDataTask *task = [session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (!error && [response isKindOfClass:NSHTTPURLResponse.class] &&
-            [(NSHTTPURLResponse *)response statusCode] == 200 && data.length <= 16 * 1024 * 1024) {
-            id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-            if ([json isKindOfClass:NSDictionary.class]) result = json;
-        }
-        dispatch_semaphore_signal(done);
-    }];
-    [task resume];
-    BOOL finished = dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(remaining * NSEC_PER_SEC))) == 0;
-    [session invalidateAndCancel];
-    return finished ? result : nil;
-}
 
 static NSModalResponse mng_update_alert(NSString *base, NSString *head) {
     [NSApplication sharedApplication];
@@ -73,27 +20,25 @@ static NSModalResponse mng_update_alert(NSString *base, NSString *head) {
     return [alert runModal];
 }
 
+// The launcher reads only a previous result. The runtime owns the background task:
+// a dispatch block started here would be destroyed by the launcher's execv().
 static void mng_update_notice(NSString *dataFolder) {
-    const char *enabled = getenv("MNG_CHECK_UPDATES");
-    if (enabled && !strcmp(enabled, "0")) return;
+    unsetenv("MNG_UPDATE_REVISION");
+    unsetenv("MNG_UPDATE_DATA");
+    if (!mng_updates_enabled()) return;
     NSString *base = [NSBundle.mainBundle objectForInfoDictionaryKey:@"MNGSourceRevision"];
     if (!mng_revision(base)) return;
-    NSString *path = [dataFolder stringByAppendingPathComponent:@"port-update-state.plist"];
-    NSDictionary *old = [NSDictionary dictionaryWithContentsOfFile:path] ?: @{};
-    NSMutableDictionary *state = [old mutableCopy];
-    double deadline = NSProcessInfo.processInfo.systemUptime + 3.0;
-    NSDictionary *ref = mng_public_json(@"git/ref/heads/main", deadline);
-    id object = ref[@"object"];
-    NSString *head = [object isKindOfClass:NSDictionary.class] ? object[@"sha"] : nil;
-    if (!mng_revision(head) || [head isEqual:base] || [head isEqual:state[@"skipped"]]) return;
-    NSString *comparison = [NSString stringWithFormat:@"compare/%@...%@?per_page=1", base, head];
-    if (!mng_comparison_has_update(mng_public_json(comparison, deadline))) return;
+    setenv("MNG_UPDATE_REVISION", base.UTF8String, 1);
+    setenv("MNG_UPDATE_DATA", dataFolder.fileSystemRepresentation, 1);
+    NSDictionary *state = [NSDictionary dictionaryWithContentsOfFile:mng_update_state_path(dataFolder)] ?: @{};
+    NSString *head = mng_cached_update(state, base, mng_update_skipped(dataFolder));
+    if (!head) return;
     NSModalResponse choice = mng_update_alert(base, head);
     if (choice == NSAlertThirdButtonReturn) {
-        state[@"skipped"] = head;
-        [state writeToFile:path atomically:YES];
+        // Separate from the worker's cache so an in-flight check cannot undo Skip.
+        [head writeToFile:mng_update_skip_path(dataFolder) atomically:YES encoding:NSUTF8StringEncoding error:nil];
     } else if (choice == NSAlertSecondButtonReturn) {
-        // Build the URL ourselves: never execute or follow URLs supplied in a GitHub response.
+        // Never execute or follow URLs supplied in a GitHub response.
         NSString *url = [NSString stringWithFormat:@"https://github.com/ly05010419/MacNativeGames/compare/%@...%@", base, head];
         [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:url]];
     }
