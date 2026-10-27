@@ -40,6 +40,8 @@ void runtime_rumble_gain_set(float g) { (void)g; }
 #include <mach/mach_vm.h>
 #include "bow_state.h"
 #include "game_version.h"   /* Tears of the Kingdom 1.4.3's scene slot and actor name offsets, for the bow state */
+#include <mach/mach_time.h>
+#include "hid_imu.h"
 
 /* ---- rumble ----
    Simple pattern players (CHHapticPatternPlayer) only: on macOS 26.5.2 (25F84) the advanced player (looping) never gets
@@ -240,6 +242,7 @@ static IOHIDManagerRef hidManager;   /* main queue */
 static IOHIDDeviceRef hidDevice;     /* main queue */
 static uint8_t hidReport[64];
 static uint8_t hidPacket;
+static BOOL hidJoyConRight; /* local: paired original Joy-Con uses the right IMU */
 static uint64_t hidLast;
 static BOOL hidUserCalibration;
 static double hidAccScale[3] = {8.0 / 32768, 8.0 / 32768, 8.0 / 32768}, hidGyroScale[3] = {2000.0 / 32768, 2000.0 / 32768, 2000.0 / 32768}, hidGyroOrigin[3];
@@ -279,8 +282,10 @@ static void hid_report(void *ctx, IOReturn result, void *sender, IOHIDReportType
         return;
     }
     if (id != 0x30) return;
-    runtime_gamepad_switch_left((__bridge void *)motionPad,
+    if (!hidJoyConRight) runtime_gamepad_switch_left((__bridge void *)motionPad,
         p[6] | (p[7] & 15) << 8, (p[7] >> 4) | p[8] << 4);
+    runtime_gamepad_switch_right((__bridge void *)motionPad,
+        p[9] | (p[10] & 15) << 8, (p[10] >> 4) | p[11] << 4);
     uint64_t now = runtime_now_ns(), step = hidLast && now - hidLast < 50000000ull ? (now - hidLast) / 3 : 5000000ull;
     hidLast = now;
     for (int k = 0; k < 3; k++) {
@@ -289,7 +294,9 @@ static void hid_report(void *ctx, IOReturn result, void *sender, IOHIDReportType
         for (int i = 0; i < 6; i++) raw[i] = le16(s + 2 * i);
         for (int i = 0; i < 3; i++) { raw[i] *= hidAccScale[i]; raw[3 + i] = (raw[3 + i] - hidGyroOrigin[i]) * hidGyroScale[i] * (M_PI / 180); }
         /* to GCMotion's frame (x right, y top edge, z out of the face; acceleration as gravity: face up z = -1 G) */
-        const double acc[3] = {raw[1], -raw[0], -raw[2]}, gyro[3] = {-raw[4], raw[3], raw[5]};
+        /* Right Joy-Con reverses raw Y/Z relative to Pro (SDL Switch sensor mapping). */
+        const double side = hidJoyConRight ? -1 : 1;
+        const double acc[3] = {side * raw[1], -raw[0], -side * raw[2]}, gyro[3] = {-side * raw[4], raw[3], side * raw[5]};
         runtime_motion_feed(acc, gyro, now - (uint64_t)(2 - k) * step);
     }
 }
@@ -297,12 +304,13 @@ static void hid_motion_start(void) {   /* main queue */
     if (!motionPad || hidDevice) return;
     const char *name = (motionPad.vendorName ?: @"controller").UTF8String;
     hidManager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
-    IOHIDManagerSetDeviceMatching(hidManager, (__bridge CFDictionaryRef)@{@kIOHIDVendorIDKey: @0x057e, @kIOHIDProductIDKey: @0x2009});
+    hidJoyConRight = [motionPad.productCategory containsString:@"Joy-Con"];
+    IOHIDManagerSetDeviceMatching(hidManager, (__bridge CFDictionaryRef)@{@kIOHIDVendorIDKey: @0x057e, @kIOHIDProductIDKey: @(hidJoyConRight ? 0x2007 : 0x2009)});
     NSSet *devices = (__bridge_transfer NSSet *)IOHIDManagerCopyDevices(hidManager);
     IOHIDDeviceRef d = (__bridge IOHIDDeviceRef)devices.anyObject;
     IOReturn r = d ? IOHIDDeviceOpen(d, kIOHIDOptionsTypeNone) : kIOReturnNotFound;
     if (r != kIOReturnSuccess) {
-        fprintf(stderr, "[gyro] %s: GameController's motion is all zeros and no Switch Pro HID device could be opened (0x%x): no motion from it\n", name, r);
+        fprintf(stderr, "[gyro] %s: no usable GameController motion and no matching Switch HID device could be opened (0x%x): no motion from it\n", name, r);
         CFRelease(hidManager); hidManager = NULL; return;
     }
     hidDevice = (IOHIDDeviceRef)CFRetain(d); hidLast = 0; hidUserCalibration = NO;
@@ -310,17 +318,20 @@ static void hid_motion_start(void) {   /* main queue */
     IOHIDDeviceScheduleWithRunLoop(hidDevice, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
     IOHIDDeviceRegisterInputReportCallback(hidDevice, hidReport, sizeof hidReport, hid_report, NULL);
     runtime_motion_deadzone_default(1.2); runtime_motion_live(1);
-    fprintf(stderr, "[gyro] %s: GameController's motion is all zeros; reading the six-axis sensor from its HID reports\n", name);
+    fprintf(stderr, "[gyro] %s: reading the six-axis sensor from its HID reports (right Joy-Con for a paired set)\n", name);
     /* IMU on, then the calibrations; spaced out, as the controller drops subcommands sent back to back */
     static const uint8_t imuOn[1] = {0x01}, factory[5] = {0x20, 0x60, 0, 0, 24}, user[5] = {0x26, 0x80, 0, 0, 26};
     hid_subcommand(0x40, imuOn, sizeof imuOn);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ hid_subcommand(0x10, factory, sizeof factory); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ hid_subcommand(0x10, user, sizeof user); });
+    if (hidJoyConRight) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 750 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ const uint8_t mode = 0x30; hid_subcommand(0x03, &mode, 1); });
 }
 static void hid_motion_stop(void) {   /* main queue */
     if (!hidDevice) return;
     runtime_gamepad_switch_left(NULL, -1, -1);
+    runtime_gamepad_switch_right(NULL, -1, -1);
     IOHIDDeviceRegisterInputReportCallback(hidDevice, hidReport, sizeof hidReport, NULL, NULL);
+    IOHIDDeviceRegisterInputReportWithTimeStampCallback(hidDevice, hidReport, sizeof hidReport, NULL, NULL);
     IOHIDDeviceUnscheduleFromRunLoop(hidDevice, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
     IOHIDDeviceClose(hidDevice, kIOHIDOptionsTypeNone);
     CFRelease(hidDevice); hidDevice = NULL;
@@ -496,6 +507,56 @@ void runtime_triggers_choose(int on) {
     if (pick) triggers_apply(pick, (pick.vendorName ?: @"controller").UTF8String);
 }
 
+/* ---- motion from the input reports of a pad GameController gives none (2026-10-23): runtime/hid_imu.h ---- */
+static const HidImuProfile *imuProfile;   /* main run loop */
+static uint64_t imuLast;   /* main run loop: the time of the last sample */
+static void hid_imu_report(void *ctx, IOReturn result, void *sender, IOHIDReportType type, uint32_t id, uint8_t *p, CFIndex len, uint64_t stamp) {   /* main run loop */
+    (void)ctx; (void)sender; (void)type;
+    const HidImuProfile *pr = imuProfile;
+    if (result != kIOReturnSuccess || !pr || id != pr->reportId) return;
+    if (len < pr->length) {
+        static BOOL said;
+        if (!said) { said = YES; fprintf(stderr, "[gyro] %04x:%04x sends %ld-byte reports and the sensor needs %d (old firmware?): no motion from it\n", pr->vendor, pr->product, (long)len, pr->length); }
+        return;
+    }
+    double acc[3], gyro[3];
+    if (!hid_imu_decode(pr, id, p, len, acc, gyro)) return;
+    static mach_timebase_info_data_t tb;
+    if (!tb.denom) mach_timebase_info(&tb);
+    runtime_motion_feed(acc, gyro, hid_imu_time((uint64_t)((__uint128_t)stamp * tb.numer / tb.denom), runtime_now_ns(), &imuLast));   /* the report's own receive time: see hid_imu.h */
+}
+static BOOL hid_imu_start(GCController *c) {   /* main queue: c has no GCMotion */
+    if (![c.productCategory isEqualToString:GCProductCategoryHID]) return NO;   /* not an Xbox pad that merely sits beside one of these */
+    NSMutableArray *matching = [NSMutableArray array];
+    for (int i = 0; i < HID_IMU_PROFILES; i++)
+        [matching addObject:@{@kIOHIDVendorIDKey: @(hid_imu_profiles[i].vendor), @kIOHIDProductIDKey: @(hid_imu_profiles[i].product)}];
+    IOHIDManagerRef m = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
+    IOHIDManagerSetDeviceMatchingMultiple(m, (__bridge CFArrayRef)matching);
+    IOHIDManagerOpen(m, kIOHIDOptionsTypeNone);
+    NSSet *devices = (__bridge_transfer NSSet *)IOHIDManagerCopyDevices(m);
+    IOHIDDeviceRef d = (__bridge IOHIDDeviceRef)devices.anyObject;
+    if (!d) { CFRelease(m); return NO; }
+    int vendor = 0, product = 0;
+    CFTypeRef cv = IOHIDDeviceGetProperty(d, CFSTR(kIOHIDVendorIDKey)), cp = IOHIDDeviceGetProperty(d, CFSTR(kIOHIDProductIDKey));
+    if (cv) CFNumberGetValue(cv, kCFNumberIntType, &vendor);
+    if (cp) CFNumberGetValue(cp, kCFNumberIntType, &product);
+    const HidImuProfile *found = hid_imu_find(vendor, product);
+    const char *name = (c.vendorName ?: @"controller").UTF8String;
+    IOReturn r = found ? IOHIDDeviceOpen(d, kIOHIDOptionsTypeNone) : kIOReturnNotFound;
+    if (r != kIOReturnSuccess) {
+        if (found) fprintf(stderr, "[gyro] %s: HID device %04x:%04x found but did not open (0x%x): no motion from it\n", name, vendor, product, r);
+        CFRelease(m); return NO;
+    }
+    hid_motion_stop();
+    hidManager = m; hidDevice = (IOHIDDeviceRef)CFRetain(d); imuProfile = found;
+    IOHIDDeviceScheduleWithRunLoop(hidDevice, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
+    imuLast = 0;
+    IOHIDDeviceRegisterInputReportWithTimeStampCallback(hidDevice, hidReport, sizeof hidReport, hid_imu_report, NULL);
+    motionPad = c; runtime_motion_deadzone_default(1.2); runtime_motion_live(1);
+    fprintf(stderr, "[gyro] %s: no motion from GameController; reading the six-axis sensor from its HID reports (%04x:%04x)\n", name, vendor, product);
+    return YES;
+}
+
 /* ---- controllers ---- */
 void runtime_feedback_attach(GCController *c) {   /* main queue */
     const char *name = (c.vendorName ?: @"controller").UTF8String;
@@ -516,7 +577,13 @@ void runtime_feedback_attach(GCController *c) {   /* main queue */
             if (r > 0) fprintf(stderr, "[gyro] axes remapped by TOTK_GYRO_AXES=%s\n", axes);
         });
         GCMotion *m = c.motion;
-        if (!m || !m.hasRotationRate) { fprintf(stderr, "[gyro] %s has no gyro: no motion from it\n", name); return; }
+        if (!m || !m.hasRotationRate) {
+            if ([c.productCategory containsString:@"Joy-Con"]) {   /* PR #889: a paired Joy-Con's right HID sensor */
+                hid_motion_stop(); zeroSince = 0; motionSeen = hidAsked = NO;
+                motionPad = c; hid_motion_start();
+            } else if (!hid_imu_start(c)) fprintf(stderr, "[gyro] %s has no gyro: no motion from it\n", name);   /* PR #309: IMU in its HID reports (8BitDo Ultimate 2) */
+            return;
+        }
         if (m.sensorsRequireManualActivation) m.sensorsActive = YES;
         hid_motion_stop(); zeroSince = 0; motionSeen = hidAsked = NO; runtime_motion_deadzone_default(0);
         m.valueChangedHandler = ^(GCMotion *changed) { motion_sample(changed); };
