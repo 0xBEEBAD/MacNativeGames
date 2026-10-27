@@ -144,6 +144,34 @@
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 			<key>Title</key>
+			<string>觸控操作 · Touch controls</string>
+			<key>FooterText</key>
+			<string>未連接手柄時使用手機的陀螺儀和觸覺馬達；接上手柄後自動讓位。重新啟動遊戲後生效 · uses the phone's gyro and haptic actuator with no controller connected; a connected controller takes over. Takes effect after relaunching the game</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_PHONE_GYRO</string>
+			<key>Title</key>
+			<string>手機體感 · Phone gyro</string>
+			<key>DefaultValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_PHONE_HAPTICS</string>
+			<key>Title</key>
+			<string>手機震動 · Phone haptics</string>
+			<key>DefaultValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
 			<string>自定义画质与帧率 · Custom picture and frame rate</string>
 			<key>FooterText</key>
 			<string>关闭时使用上面的「Full HD（底座模式）」与「帧率」两个预设；打开后本组生效，那两个预设不生效。MetalFX、界面等设置始终生效。重启游戏后生效 · off: the two presets above decide the size and the frame rate; on: this group does, and the presets do not. MetalFX and the interface apply either way. Takes effect after relaunching</string>
