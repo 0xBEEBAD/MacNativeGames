@@ -78,6 +78,7 @@ How the builder is made, for anyone changing it (people or AI assistants): [buil
 xcode-select --install
 # Homebrew, if missing: see https://brew.sh (it must live in /opt/homebrew)
 brew install opus libvpx python@3.14
+brew install python-tk@3.14   # only for the builder window (Build with a window, above)
 ```
 
 Instead of Homebrew's Python you can use [uv](https://docs.astral.sh/uv/): `uv run --python 3.14 build_app.py …` in place of `python3.14 build_app.py …`.
