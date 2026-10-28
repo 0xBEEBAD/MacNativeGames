@@ -138,11 +138,13 @@ void *runtime_input_override(const char *name);
 typedef struct { uint64_t buttons; int32_t lx,ly,rx,ry; int connected; } RuntimeGamepadState;
 void runtime_gamepad_start(void);
 void runtime_gamepad_switch_left(void *controller, int x, int y);
+void runtime_gamepad_switch_right(void *controller, int x, int y);
 void runtime_gamepad_read(RuntimeGamepadState *out);
 /* Mac software keyboard: exclusive controller capture; UI reads physical positions (controller_map.h),
    independent of gameplay remaps. Main-thread only. Closing waits for release before gameplay resumes. */
 void runtime_gamepad_text_capture(int on);
 void runtime_gamepad_text_read(RuntimeGamepadState *out);
+int runtime_gamepad_game_input(void);   /* any thread: 1 while the game gets the controllers (no capture, nor its release wait) */
 /* macOS opts in; the physical L2 + R2 + left-stick click chord, held for a second, is latched independently of guest polling. */
 void runtime_gamepad_settings_enable(int enabled);
 int runtime_gamepad_settings_requested(void);
@@ -190,6 +192,7 @@ int runtime_triggers_available(void);
 int runtime_triggers_locked(void);
 int runtime_triggers_choice(void);
 void runtime_triggers_choose(int on);
+void runtime_triggers_release(void);   /* the game ends (atexit, and the window's close, whose _exit skips it): both triggers off */
 int runtime_motion_read(RuntimeMotionState *out, int max);   /* newest first; 0 = no motion now */
 void runtime_motion_start(void);   /* the game (re)started its sensor: angle and direction start over */
 void runtime_motion_feed(const double acc_g[3], const double gyro_rad_s[3], uint64_t now_ns);   /* runtime/motion_fusion.c */
@@ -203,5 +206,6 @@ void runtime_feedback_quiet(void);   /* focus lost: stop rumbling */
 #ifdef __OBJC__
 @class GCController;
 void runtime_feedback_attach(GCController *controller);
+void runtime_feedback_active(void);   /* the app became active: manual-activation controllers need their sensors on again */
 void runtime_feedback_detach(GCController *controller);
 #endif

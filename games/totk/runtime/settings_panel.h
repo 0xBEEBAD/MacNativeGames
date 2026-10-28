@@ -1,8 +1,8 @@
 /* The settings panel (Mac; included by frontend.m): key 1 opens and closes it (runtime/input.c), Esc and its close
    button close it. User 2026-10-25: it replaces the shortcut keys 2-7 and their reminder box. One row per setting, a
    pop-up menu or a switch, each applied at once:
-     overlay              all / FPS only / off               fps_overlay_set_hud_mode (gfx/nvn/fps_overlay.c)
-     frame lock           off / 30 / 40 / 60                 nvn_fps_lock_set (gfx/nvn/hle_nvn.c; user 2026-10-25 "锁帧")
+     overlay              all / FPS + playtime / off               fps_overlay_set_hud_mode (gfx/nvn/fps_overlay.c)
+     frame lock           off / 30 / 40 / 60 / 72 / 90 / 120  nvn_fps_lock_set (gfx/nvn/hle_nvn.c; user 2026-10-25 "锁帧")
                                                              frame lock and frame interpolation exclude each other: picking
                                                              one turns the other off (user 2026-10-25, not to mislead)
      frame interpolation  off / 30+30 / 40+40 / 50+50 /      runtime flag mfx_interp (gfx/nvn/totk_mfx.m)
@@ -35,12 +35,13 @@
    keyboard, mouse or controller input (TOTKInputView, front_mouse_update and gamepad capture). The
    controls read their values again twice a second, so they always show what is in force. */
 #pragma once
+#include "totk_fps_limit.h"
 #include "aspect_math.h"   /* aspect_near, ASPECT_GAME */
 #include "../third_party/d2r_gfx/gfx/nvn/totk_shader_contrib.h"   /* the contribution file, TOTK_REPO_URL */
 #include "contrib_submit.h"   /* gh_path, contrib_submit (shared with app/launcher.m) */
 
 void dm_gfx_set_flag(const char *name, int value);
-void nvn_fps_lock_set(int fps);   /* gfx/nvn/hle_nvn.c: 0 off, 30, 40 or 60 */
+void nvn_fps_lock_set(int fps);   /* gfx/nvn/hle_nvn.c: the shared totk_fps_limits choices */
 int nvn_fps_lock(void);
 
 /* Picking a resolution sizes the window to it at once (user 2026-10-25): 720p 1280x720, 1080p 1920x1080, MetalFX 2560x1440, native its own size (2K), 2K + MetalFX 3840x2160, in the window's points as the first window (frontend.m runtime_front_run), the picture's shape kept
@@ -62,6 +63,62 @@ static void settings_window_for(int mode) {
  f.origin.y=fmax(NSMinY(visible),fmin(f.origin.y,NSMaxY(visible)-f.size.height));
  [window setFrame:f display:YES];   /* windowDidResize follows the drawable (front_sync_drawable) */
  fprintf(stderr,"[totk] settings: window %.0fx%.0f for the resolution\n",cw,ch);
+}
+
+/* Settings live alongside controls.txt. Restore the graphics switches before the guest starts; output and aspect
+   patches become available later, so restore those on the main thread when the guest has installed them. */
+static int settingsPendingOutput = -1;
+static float settingsPendingAspect;
+static NSTimer *settingsRestoreTimer;
+static void settings_save_int(const char *name, int value, const char *what) {
+ char word[32];snprintf(word,sizeof word,"%d",value);runtime_setting_save(name,word,what);
+}
+static int settings_read_int(const char *name, int *value) {
+ char word[32],*end;if(!runtime_setting_word(name,word,sizeof word))return 0;
+ long n=strtol(word,&end,10);while(*end==' '||*end=='\n'||*end=='\r'||*end=='\t')end++;
+ if(end==word||*end||n<0||n>1000)return 0;*value=(int)n;return 1;
+}
+static void settings_save_frame(void) {
+ char word[32];int fps=nvn_fps_lock(),mfx=mfx_requested();
+ if(fps)snprintf(word,sizeof word,"lock-%d",fps);
+ else if(mfx)snprintf(word,sizeof word,"interp-%d",mfx);
+ else snprintf(word,sizeof word,"off");
+ runtime_setting_save("graphics-frame.txt",word,"frame mode");
+}
+static void settings_restore_begin(void) {
+ int v;char word[32];
+ if(settings_read_int("graphics-overlay.txt",&v)&&v<=HUD_MODE_MINIMAL)fps_overlay_set_hud_mode(v);
+ if(!getenv("TOTK_MFX")&&runtime_setting_word("graphics-frame.txt",word,sizeof word)){
+  int n=0;char tail=0;
+  if(sscanf(word,"lock-%d %c",&n,&tail)==1&&(n>0&&totk_fps_limit_valid(n))){dm_gfx_set_flag("mfx_interp",MFX_OFF);nvn_fps_lock_set(n);}
+  else if(sscanf(word,"interp-%d %c",&n,&tail)==1&&n>=MFX_30&&n<=MFX_MAX){nvn_fps_lock_set(0);dm_gfx_set_flag("mfx_interp",n);}
+  else if(!strcmp(word,"off")||!strcmp(word,"off\n")){nvn_fps_lock_set(0);dm_gfx_set_flag("mfx_interp",MFX_OFF);}
+ }
+ if(!getenv("TOTK_TAA")&&settings_read_int("graphics-taa.txt",&v)&&(v==0||v==1))taa_set(v);
+ const char *output=getenv("TOTK_OUTPUT_RES");
+ if((!output||!*output||!strcmp(output,"auto"))&&!getenv("TOTK_MFX_OUTPUT")&&!getenv("TOTK_MFX_UPSCALE")&&
+    settings_read_int("graphics-output.txt",&v)&&v<=OUTPUT_MODE_720P)settingsPendingOutput=v;
+ if(!getenv("TOTK_ASPECT")&&runtime_setting_word("graphics-aspect.txt",word,sizeof word)){
+  char *end;float ratio=strtof(word,&end);while(*end==' '||*end=='\n'||*end=='\r'||*end=='\t')end++;
+  if(end!=word&&!*end&&isfinite(ratio)&&ratio>=0.5f&&ratio<=8)settingsPendingAspect=ratio;
+ }
+}
+static void settings_restore_ready(void) {
+ if(settingsPendingAspect>0&&runtime_aspect_ratio()>0){
+  float r=settingsPendingAspect;settingsPendingAspect=0;
+  if(runtime_aspect_set_ratio(r))runtime_front_resize_aspect(r);
+ }
+ if(settingsPendingOutput>=0&&runtime_output_modes()){
+  int mode=settingsPendingOutput;settingsPendingOutput=-1;
+  if((runtime_output_modes()&(1<<mode))&&runtime_output_mode_set(mode))settings_window_for(mode);
+ }
+ if(settingsPendingOutput<0&&settingsPendingAspect<=0){[settingsRestoreTimer invalidate];settingsRestoreTimer=nil;}
+}
+static void settings_restore_start(void) {
+ settings_restore_begin();
+ if(settingsPendingOutput<0&&settingsPendingAspect<=0)return;
+ settingsRestoreTimer=[NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *t){(void)t;settings_restore_ready();}];
+ [NSRunLoop.mainRunLoop addTimer:settingsRestoreTimer forMode:NSRunLoopCommonModes];
 }
 
 static void settings_refresh_all(void);
@@ -142,18 +199,25 @@ static NSString *settings_pad_auto_text(void) {
 static NSArray<TOTKSettingRow *> *settings_rows(void) {
  NSMutableArray<TOTKSettingRow *> *rows=[NSMutableArray array];
  [rows addObject:settings_row(settings_text("性能信息","Overlay"),
-  @[settings_text("全部（FPS、着色器、读取）","All (FPS, shaders, load)"),settings_text("只显示 FPS","FPS only"),settings_text("关","Off")],
+  @[settings_text("全部（FPS、着色器、读取、游玩时间）","All (FPS, shaders, load, playtime)"),settings_text("FPS 与游玩时间","FPS + playtime"),settings_text("关","Off")],
   @[@(HUD_MODE_ALL),@(HUD_MODE_MINIMAL),@(HUD_MODE_OFF)],
-  ^int{return fps_overlay_hud_mode();},^(int v){fps_overlay_set_hud_mode(v);[(TOTKHudBox *)hudBox refresh];})];
+  ^int{return fps_overlay_hud_mode();},^(int v){fps_overlay_set_hud_mode(v);settings_save_int("graphics-overlay.txt",v,"overlay");[(TOTKHudBox *)hudBox refresh];})];
  [rows addObject:settings_row(settings_text("帧率图","FPS graph"),nil,nil,
   ^int{return fpsGraphEnabled;},^(int v){fpsGraphEnabled=v;runtime_setting_save("fps-graph.txt",v?"on":"off","FPS graph");[(TOTKFpsGraph *)fpsGraphBox setEnabled:v];[(TOTKHudBox *)hudBox refresh];})];
- [rows addObject:settings_row(settings_text("锁帧","Frame lock"),
-  @[settings_text("关","Off"),settings_text("30 帧","30 fps"),settings_text("40 帧","40 fps"),settings_text("60 帧","60 fps")],@[@0,@30,@40,@60],
-  ^int{return nvn_fps_lock();},^(int v){nvn_fps_lock_set(v);if(v)dm_gfx_set_flag("mfx_interp",MFX_OFF);})];
+ NSMutableArray<NSString *> *lockChoices=[NSMutableArray array];
+ NSMutableArray<NSNumber *> *lockValues=[NSMutableArray array];
+ for(unsigned i=0;i<TOTK_FPS_LIMIT_COUNT;i++){
+  int fps=totk_fps_limits[i];
+  [lockChoices addObject:fps?[NSString stringWithFormat:@(TOTK_UI("%d 帧","%d fps")),fps]:settings_text("关","Off")];
+  [lockValues addObject:@(fps)];
+ }
+ if(getenv("TOTK_MFX"))[rows addObject:settings_fixed(settings_text("锁帧","Frame lock"),settings_text("由 TOTK_MFX 设置","Set by TOTK_MFX"))];
+ else { [rows addObject:settings_row(settings_text("锁帧","Frame lock"),lockChoices,lockValues,
+  ^int{return nvn_fps_lock();},^(int v){nvn_fps_lock_set(v);if(v)dm_gfx_set_flag("mfx_interp",MFX_OFF);settings_save_frame();})]; }
  [rows addObject:settings_row(settings_text("补帧（MetalFX）","Frame interpolation (MetalFX)"),
   @[settings_text("关","Off"),@"30+30",@"40+40",@"50+50",settings_text("不限帧","Unlimited")],
   @[@(MFX_OFF),@(MFX_30),@(MFX_40),@(MFX_50),@(MFX_MAX)],
-  ^int{return mfx_requested();},^(int v){dm_gfx_set_flag("mfx_interp",v);if(v!=MFX_OFF)nvn_fps_lock_set(0);})];
+  ^int{return mfx_requested();},^(int v){dm_gfx_set_flag("mfx_interp",v);if(v!=MFX_OFF)nvn_fps_lock_set(0);settings_save_frame();})];
  int modes=runtime_output_modes();
  NSMutableArray<NSString *> *res=[NSMutableArray array];NSMutableArray<NSNumber *> *resModes=[NSMutableArray array];
  static const int order[]={OUTPUT_MODE_720P,OUTPUT_MODE_OFF,OUTPUT_MODE_METALFX,OUTPUT_MODE_NATIVE,OUTPUT_MODE_NATIVE_METALFX};
@@ -166,7 +230,7 @@ static NSArray<TOTKSettingRow *> *settings_rows(void) {
   [resModes addObject:@(m)];}
  if(res.count<2)[rows addObject:settings_fixed(settings_text("分辨率","Resolution"),@"1080p")];
  else [rows addObject:settings_row(settings_text("分辨率","Resolution"),res,resModes,
-  ^int{return runtime_output_mode();},^(int v){if(runtime_output_mode_set(v))settings_window_for(v);})];
+  ^int{return runtime_output_mode();},^(int v){settingsPendingOutput=-1;if(runtime_output_mode_set(v)){settings_window_for(v);settings_save_int("graphics-output.txt",v,"resolution");}})];
  if(!(runtime_aspect_ratio()>0))[rows addObject:settings_fixed(settings_text("画面比例","Aspect ratio"),@"16:9")];
  else{NSMutableArray<NSNumber *> *ratios=[@[@(16.0/9),@(16.0/10),@(21.0/9),@(32.0/9)] mutableCopy];
   float start=runtime_aspect_start();BOOL listed=NO;   /* TOTK_ASPECT's ratio (2.39, 3440x1440 ...) as one more choice */
@@ -176,9 +240,9 @@ static NSArray<TOTKSettingRow *> *settings_rows(void) {
   for(NSUInteger i=0;i<ratios.count;i++){[choices addObject:settings_ratio_text(ratios[i].floatValue)];[values addObject:@((int)i)];}
   [rows addObject:settings_row(settings_text("画面比例","Aspect ratio"),choices,values,^int{
     float now=runtime_aspect_ratio();for(NSUInteger i=0;i<ratios.count;i++)if(aspect_near(now,ratios[i].doubleValue))return (int)i;return -1;},
-   ^(int v){float r=ratios[(NSUInteger)v].floatValue;if(runtime_aspect_set_ratio(r))runtime_front_resize_aspect(r);})];}
+   ^(int v){float r=ratios[(NSUInteger)v].floatValue;settingsPendingAspect=0;if(runtime_aspect_set_ratio(r)){runtime_front_resize_aspect(r);char word[32];snprintf(word,sizeof word,"%.8g",r);runtime_setting_save("graphics-aspect.txt",word,"aspect ratio");}})];}
  [rows addObject:settings_row(settings_text("边缘平滑（MetalFX 时间性）","Edge smoothing (MetalFX Temporal)"),nil,nil,
-  ^int{return taa_enabled();},^(int v){taa_set(v);})];
+  ^int{return taa_enabled();},^(int v){taa_set(v);settings_save_int("graphics-taa.txt",v,"edge smoothing");})];
  TOTKSettingRow *pad=settings_row(settings_text("手柄类型","Controller type"),@[settings_pad_auto_text(),@"Xbox",@"PlayStation",@"Switch"],
   @[@(GAMEPAD_TYPE_AUTO),@(GAMEPAD_TYPE_XBOX),@(GAMEPAD_TYPE_PLAYSTATION),@(GAMEPAD_TYPE_SWITCH)],
   ^int{return runtime_gamepad_type(NULL);},^(int v){runtime_gamepad_type_set(v);});

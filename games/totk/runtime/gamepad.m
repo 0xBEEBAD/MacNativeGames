@@ -40,10 +40,10 @@ static uint64_t physicalPrev;
 static uint64_t tapUntil[CONTROLLER_BUTTONS];   /* ns, for tap */
 static int toggleOn[CONTROLLER_BUTTONS];        /* for toggle */
 static int toggleMoved[CONTROLLER_BUTTONS];     /* the stick moved since the toggle went on */
-static __weak GCController *rawLeftController;
-static SwitchLeftFallback rawLeft;
-static uint64_t gamepadRawLeftAt;
-static int32_t gamepadNativeLx, gamepadNativeLy;
+static __weak GCController *rawLeftController, *rawRightController;
+static SwitchLeftFallback rawLeft, rawRight;
+static uint64_t gamepadRawLeftAt, gamepadRawRightAt;
+static int32_t gamepadNativeLx, gamepadNativeLy, gamepadNativeRx, gamepadNativeRy;   /* the sticks as GameController reads them */
 static void refresh_gamepads(void);
 
 /* Called on the main run loop by the already-open Switch HID motion stream. */
@@ -52,6 +52,13 @@ void runtime_gamepad_switch_left(void *source, int x, int y) {
     if (rawLeftController != controller) rawLeft = (SwitchLeftFallback){0};
     rawLeftController = controller;
     switch_left_feed(&rawLeft, x, y, runtime_now_ns());
+    refresh_gamepads();
+}
+void runtime_gamepad_switch_right(void *source, int x, int y) {
+    GCController *controller = (__bridge GCController *)source;
+    if (rawRightController != controller) rawRight = (SwitchLeftFallback){0};
+    rawRightController = controller;
+    switch_left_feed(&rawRight, x, y, runtime_now_ns());
     refresh_gamepads();
 }
 
@@ -152,6 +159,9 @@ static uint64_t gamepad_buttons(GCExtendedGamepad *pad, int by_position) {
     if (pad.rightThumbstickButton.isPressed) buttons |= 1ULL << 5;
     if (pad.leftShoulder.isPressed) buttons |= 1ULL << 6;
     if (pad.rightShoulder.isPressed) buttons |= 1ULL << 7;
+    /* ZL / ZR: GameController counts a DualSense trigger as pressed from its first step of travel (value > 0, 1/255) and
+       released at 0, with no chatter in between and nothing from a finger resting on it (measured over Bluetooth on macOS
+       27.2, 2026-10-27), so a threshold of our own could only make the bow draw later. */
     if (pad.leftTrigger.isPressed) buttons |= 1ULL << 8;
     if (pad.rightTrigger.isPressed) buttons |= 1ULL << 9;
     if (pad.buttonMenu.isPressed) buttons |= 1ULL << 10;
@@ -448,8 +458,8 @@ void runtime_mouse_release(void) {   /* main thread: the window let the pointer 
 static void refresh_gamepads(void) {
     RuntimeGamepadState next = {0};
     uint64_t physical = (uint64_t)mouseButtons << CONTROLLER_MOUSE_FIRST;
-    int32_t nativeLx = 0, nativeLy = 0;
-    uint64_t rawAt = 0;
+    int32_t nativeLx = 0, nativeLy = 0, nativeRx = 0, nativeRy = 0;
+    uint64_t rawAt = 0, rawRightAt = 0;
     for (GCController *controller in GCController.controllers) {
         GCExtendedGamepad *pad = controller.extendedGamepad;
         if (!pad) continue;
@@ -467,8 +477,18 @@ static void refresh_gamepads(void) {
         }
         next.lx = stronger_axis(next.lx, stick_axis(lx));
         next.ly = stronger_axis(next.ly, stick_axis(ly));
-        next.rx = stronger_axis(next.rx, stick_axis(pad.rightThumbstick.xAxis.value));
-        next.ry = stronger_axis(next.ry, stick_axis(pad.rightThumbstick.yAxis.value));
+        float rx = pad.rightThumbstick.xAxis.value, ry = pad.rightThumbstick.yAxis.value;
+        nativeRx = stronger_axis(nativeRx, stick_axis(rx));
+        nativeRy = stronger_axis(nativeRy, stick_axis(ry));
+        int rightWasActive = rawRight.active;
+        float rawRX, rawRY;
+        if (controller == rawRightController && switch_left_get(&rawRight, rx, ry, runtime_now_ns(), &rawRX, &rawRY)) {
+            rx = rawRX; ry = rawRY;
+            rawRightAt = rawRight.at;
+            if (!rightWasActive) fprintf(stderr, "[totk-input] Switch right stick: native axes stuck at zero; using live HID input\n");
+        }
+        next.rx = stronger_axis(next.rx, stick_axis(rx));
+        next.ry = stronger_axis(next.ry, stick_axis(ry));
     }
     if (hidPad.present) {
         next.connected = 1;
@@ -519,8 +539,8 @@ static void refresh_gamepads(void) {
     textPad = next; textPad.buttons = physical & 0x1ffffu;
     pressedEdges |= next.buttons & ~gamepadState.buttons;
     gamepadState = next;
-    gamepadRawLeftAt = rawAt;
-    gamepadNativeLx = nativeLx; gamepadNativeLy = nativeLy;
+    gamepadRawLeftAt = rawAt; gamepadRawRightAt = rawRightAt;
+    gamepadNativeLx = nativeLx; gamepadNativeLy = nativeLy; gamepadNativeRx = nativeRx; gamepadNativeRy = nativeRy;
     pthread_mutex_unlock(&gamepadLock);
 }
 
@@ -673,7 +693,7 @@ void runtime_gamepad_clear(void) {
     memset(toggleMoved, 0, sizeof toggleMoved);
     pthread_mutex_lock(&gamepadLock);
     gamepadState = (RuntimeGamepadState){0};
-    gamepadRawLeftAt = 0;
+    gamepadRawLeftAt = 0; gamepadRawRightAt = 0;
     gamepadNativeLx = gamepadNativeLy = 0;
     pressedEdges = 0; textEdges = 0; textPad = (RuntimeGamepadState){0};
     settingsShortcutDown = settingsShortcutPending = 0;
@@ -721,11 +741,15 @@ void runtime_gamepad_text_capture(int on) {
     memset(toggleMoved, 0, sizeof toggleMoved);
     refresh_gamepads();
 }
+int runtime_gamepad_game_input(void) { return !atomic_load(&textCapture); }   /* the bow thread (gamepad_feedback.m) */
 /* Keep the Switch HID fallback's expiry identical for the UI and the game. gamepadLock held. */
 static RuntimeGamepadState text_state_locked(void) {
     RuntimeGamepadState state = textPad;
     if (gamepadRawLeftAt && runtime_now_ns() - gamepadRawLeftAt > 250000000ULL) {
         state.lx = gamepadNativeLx; state.ly = gamepadNativeLy;
+    }
+    if (gamepadRawRightAt && runtime_now_ns() - gamepadRawRightAt > 250000000ULL) {   /* the right stick's HID fallback too (after PR #844) */
+        state.rx = gamepadNativeRx; state.ry = gamepadNativeRy;
     }
     return state;
 }
@@ -739,6 +763,9 @@ void runtime_gamepad_read(RuntimeGamepadState *out) {
     *out = gamepadState;
     if (gamepadRawLeftAt && runtime_now_ns() - gamepadRawLeftAt > 250000000ULL) {
         out->lx = gamepadNativeLx; out->ly = gamepadNativeLy;
+    }
+    if (gamepadRawRightAt && runtime_now_ns() - gamepadRawRightAt > 250000000ULL) {   /* the HID reports stopped: GameController's right stick */
+        out->rx = gamepadNativeRx; out->ry = gamepadNativeRy;
     }
     out->buttons |= touchState.buttons | pressedEdges;
     out->lx = stronger_axis(out->lx, touchState.lx); out->ly = stronger_axis(out->ly, touchState.ly);

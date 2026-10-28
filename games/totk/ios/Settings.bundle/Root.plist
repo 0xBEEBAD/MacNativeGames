@@ -132,6 +132,38 @@
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 			<key>Title</key>
+			<string>手柄 · Controller</string>
+			<key>FooterText</key>
+			<string>震动与陀螺仪只对支持的手柄生效。体感瞄准同时受游戏内选项影响。重新启动游戏后生效 · rumble and gyro apply only to controllers that have them, and motion aiming is also subject to the game's own option. Takes effect after relaunching</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_RUMBLE</string>
+			<key>Title</key>
+			<string>手柄震动 · Controller rumble</string>
+			<key>DefaultValue</key>
+			<true/>
+			<key>FooterText</key>
+			<string>只对带触感的手柄生效；关掉后手机本身的震动也一起关 · applies to controllers with haptics; off also turns the phone's own vibration off</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Key</key>
+			<string>TOTK_GYRO</string>
+			<key>Title</key>
+			<string>手柄陀螺仪 · Controller gyro</string>
+			<key>DefaultValue</key>
+			<true/>
+			<key>FooterText</key>
+			<string>体感瞄准同时受游戏内选项影响 · motion aiming is also subject to the game's own option</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
 			<string>键盘 · Keyboard</string>
 			<key>FooterText</key>
 			<string>外接键盘会自动识别。插着键盘时触控按键会隐藏，打开第二项可保留触控。重新启动游戏后生效 · a hardware keyboard is detected automatically; while one is connected the touch controls hide, and the second switch below keeps them. Takes effect after relaunching</string>
