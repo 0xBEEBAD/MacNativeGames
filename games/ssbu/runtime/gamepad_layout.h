@@ -138,14 +138,19 @@ static inline uint64_t gamepad_hid_buttons(const unsigned char b[16], int order)
    (27.10.), so a full push read 0.66-0.71 after the dead zone and Smash walked where it should dash. For pads in the
    Switch Pro order, each direction of each axis is scaled by the furthest it has reached since the pad connected, and
    never by less than GAMEPAD_HID_REACH_MIN: a full push reads 1 once it has been made, a half push stays a half push.
-   A zeroed GamepadHidReach starts at that minimum. */
+   A zeroed GamepadHidReach starts at that minimum.
+   GAMEPAD_HID_FULL_AT of the reach already reads 1. The pad sends about 70 reports a second (p50 15 ms, p90 19 ms), and
+   Smash dashed on the flicks that went from 0.25 to 0.8 in two reports and walked on those that took three (28.10.: the
+   player's walk was the 46 ms flick, the runs 30 ms). Over the same 15 flicks, full at 0.85 left none taking three
+   (full at 1.0: one; 0.9: one; 0.8: two), and the four slow pushes to the end still took four or more, so they walk. */
 #define GAMEPAD_HID_REACH_MIN 0.65f
+#define GAMEPAD_HID_FULL_AT 0.85f
 typedef struct { float neg, pos; } GamepadHidReach;
 static inline float gamepad_hid_reach(GamepadHidReach *r, float v) {   /* v in -1..1 */
     if (r->pos < GAMEPAD_HID_REACH_MIN) r->pos = GAMEPAD_HID_REACH_MIN;
     if (r->neg < GAMEPAD_HID_REACH_MIN) r->neg = GAMEPAD_HID_REACH_MIN;
     if (v > r->pos) r->pos = v > 1 ? 1 : v;
     if (-v > r->neg) r->neg = -v > 1 ? 1 : -v;
-    float f = v >= 0 ? v / r->pos : v / r->neg;
+    float f = v >= 0 ? v / (r->pos * GAMEPAD_HID_FULL_AT) : v / (r->neg * GAMEPAD_HID_FULL_AT);
     return f > 1 ? 1 : f < -1 ? -1 : f;
 }

@@ -310,9 +310,10 @@ static void hid_pad_attach(IOHIDDeviceRef device) {
     IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
     hidPad.present = 1;
     fprintf(stderr, "[totk-input] HID gamepad connected: %s (%s)\n", name ? name : "unknown", manufacturer ? manufacturer : "unknown");
-    fprintf(stderr, "[totk-input] HID gamepad buttons in the %s order, right stick %s%s\n",
-            hidOrder == GAMEPAD_HID_SWITCH_PRO ? "Switch Pro Controller" : "generic", hidRightRxRy ? "Rx/Ry" : "Z/Rz",
-            hidOrder == GAMEPAD_HID_SWITCH_PRO ? ", sticks scaled to their reach" : "");
+    fprintf(stderr, "[totk-input] HID gamepad buttons in the %s order, right stick %s", hidOrder == GAMEPAD_HID_SWITCH_PRO ?
+            "Switch Pro Controller" : "generic", hidRightRxRy ? "Rx/Ry" : "Z/Rz");
+    if (hidOrder == GAMEPAD_HID_SWITCH_PRO) fprintf(stderr, ", sticks scaled to their reach, full at %.0f%%", GAMEPAD_HID_FULL_AT * 100);
+    fprintf(stderr, "\n");
     refresh_gamepads();
 }
 

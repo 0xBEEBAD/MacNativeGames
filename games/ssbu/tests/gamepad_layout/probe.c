@@ -70,15 +70,21 @@ int main(void) {
         snprintf(what, sizeof what, "generic order unchanged: usage %d", u);
         check(gamepad_hid_buttons(b, GAMEPAD_HID_GENERIC) == (generic_bits[u] < 0 ? 0 : 1ULL << generic_bits[u]), what);
     }
-    // a stick that stops at 0.72 / -0.74 of its range reads 1 once pushed there; a half push stays a half push
+    // a stick that stops at 0.72 / -0.74 of its range reads 1 once pushed there, and from 0.85 of that reach on;
+    // below it the value grows in proportion
     GamepadHidReach r = {0};
-    check(fabsf(gamepad_hid_reach(&r, 0.5f) - 0.5f / 0.65f) < 1e-5f, "before a full push: scaled by the minimum reach");
+    const float full_at = GAMEPAD_HID_FULL_AT;
+    check(fabsf(gamepad_hid_reach(&r, 0.4f) - 0.4f / (0.65f * full_at)) < 1e-5f, "before a full push: scaled by the minimum reach");
     check(gamepad_hid_reach(&r, 0.72f) == 1.0f && gamepad_hid_reach(&r, -0.74f) == -1.0f, "a full push reads 1");
-    check(fabsf(gamepad_hid_reach(&r, 0.36f) - 0.5f) < 1e-5f && fabsf(gamepad_hid_reach(&r, -0.37f) + 0.5f) < 1e-5f,
-          "after it a half push reads a half");
+    check(gamepad_hid_reach(&r, 0.62f) == 1.0f && gamepad_hid_reach(&r, -0.64f) == -1.0f,
+          "0.86 of the reach reads 1 (a flick gets there a report earlier)");
+    check(gamepad_hid_reach(&r, 0.57f) < 1.0f && gamepad_hid_reach(&r, -0.59f) > -1.0f, "0.8 of the reach is not full yet");
+    check(fabsf(gamepad_hid_reach(&r, 0.36f * full_at) - 0.5f) < 1e-5f && fabsf(gamepad_hid_reach(&r, -0.37f * full_at) + 0.5f) < 1e-5f,
+          "half of the full point reads a half");
     check(gamepad_hid_reach(&r, 0.0f) == 0.0f, "centre stays centre");
     GamepadHidReach full = {0};
-    check(gamepad_hid_reach(&full, 1.0f) == 1.0f && gamepad_hid_reach(&full, 0.5f) == 0.5f, "a stick reaching the range's end is not scaled");
+    check(gamepad_hid_reach(&full, 1.0f) == 1.0f && fabsf(gamepad_hid_reach(&full, 0.5f) - 0.5f / full_at) < 1e-5f,
+          "a stick reaching the range's end: only the full point");
     printf("{\"status\":\"%s\",\"probe\":\"gamepad-layout\",\"checked\":%d,\"failures\":%d}\n", failures ? "fail" : "pass", checked, failures);
     return failures != 0;
 }
