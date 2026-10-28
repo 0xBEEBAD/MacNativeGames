@@ -73,11 +73,11 @@ def check_seed_chain(res, chain, *, remake=False):
         if remake:
             return True
         raise BuildError(f'{res}: no readable startup shader seed manifest; pass --seed to make one from the work folder, '
-                         f'or build the app again with build_app.py') from None
+                         f'or do a full rebuild with build_app.py') from None
     if found != chain and not remake:
         raise BuildError(f'the app\'s startup shaders are of translation chain {found}, the runtime of this repository uses '
                          f'{chain}: the shaders changed, so the app needs a new seed. Pass --seed to make it from the work '
-                         f'folder of the app\'s build (a few minutes, no game file or keys), or build the app again with '
+                         f'folder of the app\'s build (a few minutes, no game file or keys), or do a full rebuild with '
                          f'build_app.py; the app was not changed')
     return found != chain
 
@@ -162,20 +162,23 @@ def check_game_data(data, res, version):
     for name, digest in sorted(modules.items()):
         image = res / f'rewritten/{version}/{name}.patched.bin'
         if not image.is_file() or sha256(image) != digest:
-            raise BuildError(f'{data}: made from other code modules than the app\'s ({name}); build the app again with build_app.py')
+            raise BuildError(f'{data}: made from other code modules than the app\'s ({name}); a full rebuild with '
+                             f'build_app.py is required, which rewrites the game\'s code modules')
     if sha256(res / f'extracted/{version}/romfs/runtime-index.bin') != config(data / 'romfs-config.txt')['ROMFS_INDEX_SHA256']:
-        raise BuildError(f'{data}: made for another RomFS index than the app\'s; build the app again with build_app.py')
+        raise BuildError(f'{data}: made for another RomFS index than the app\'s; a full rebuild with build_app.py is required')
     fonts = config(data / 'shared-fonts.txt')
     for i in range(6):
         font = res / 'extracted/firmware/shared-fonts' / fonts[f'FONT{i}_FILE']
         if not font.is_file() or sha256(font) != fonts[f'FONT{i}_SHA256']:
-            raise BuildError(f'{data}: made for other shared fonts than the app\'s ({font.name})')
+            raise BuildError(f'{data}: made for other shared fonts than the app\'s ({font.name}); a full rebuild with '
+                             f'build_app.py is required')
     if version.startswith('botw'):
         aoc = config(data / 'aoc-config.txt')
         for index in (1, 2):
             if int(aoc['AOC_PRESENT_MASK']) >> (index - 1) & 1 and \
                     sha256(res / f'extracted/{version}/aoc/{index}/runtime-index.bin') != aoc[f'AOC{index}_INDEX_SHA256']:
-                raise BuildError(f'{data}: made for other add-on content than the app\'s (volume {index})')
+                raise BuildError(f'{data}: made for other add-on content than the app\'s (volume {index}); a full rebuild '
+                                 f'with build_app.py is required')
 
 
 def rewriter_sha256():
@@ -200,13 +203,13 @@ def check_rewriter(data, res, version, want):
     except (OSError, ValueError, KeyError):
         raise BuildError(f'{data}: the app\'s code modules are not the rewrites this repository pins for '
                          f'{VERSIONS[version]["display_version"]}, and there is no record of the rewriter that made them '
-                         f'(rewriter.txt); build the app again with build_app.py') from None
+                         f'(rewriter.txt); a full rebuild with build_app.py is required') from None
     if found != want:
         raise BuildError(f'the app\'s code modules are not the rewrites this repository pins for '
                          f'{VERSIONS[version]["display_version"]} (a build with a mod\'s code patches?), and another '
                          f'patch_nso.py ({found[:12]}…) than this repository\'s ({want[:12]}…) made them: this runtime may '
-                         f'rely on gates or fixes those modules lack. Build the app again with build_app.py; the app was '
-                         f'not changed')
+                         f'rely on gates or fixes those modules lack. A full rebuild with build_app.py is required, which '
+                         f'rewrites the modules; the app was not changed')
 
 
 def probe_runtime(tmp, version, logs):
@@ -275,8 +278,8 @@ def game_data(tree, res, version, logs, env):
         run(['make', f'game-data-{version}'], logs / 'game-data.log', cwd=tree, env=env)
     except BuildError as e:
         raise BuildError(f'the work folder {tree.parent} does not hold the files the build of this app extracted, so the game '
-                         f'data folder cannot be made once (pass --work <the work folder of that build>, or build the app '
-                         f'again with build_app.py); make said: {str(e).splitlines()[0]}') from None
+                         f'data folder cannot be made once (pass --work <the work folder of that build>, or do a full '
+                         f'rebuild with build_app.py); make said: {str(e).splitlines()[0]}') from None
     return tree / f'build/game-data/{version}'
 
 
@@ -319,6 +322,8 @@ def main(argv):
     data = game_data(tree, res, version, logs, env)
     check_game_data(data, res, version)
     check_rewriter(data, res, version, rewriter_sha256())
+    say('   the app\'s code modules are this repository\'s rewrites and its game data matches its game files: updating '
+        'the runtime is enough, no full rebuild is needed')
     if args.seed:
         check_work_files(tree, data, version)
         if not stale:
