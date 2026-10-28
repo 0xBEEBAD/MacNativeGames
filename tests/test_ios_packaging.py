@@ -84,9 +84,10 @@ class ShaderPack(unittest.TestCase):
 
 
 class FullHD(unittest.TestCase):
-    """Settings › Full HD (docked): off by default, Tears of the Kingdom only, with the 1600x900 scene (1.4.3 renders
-    960x540 on the phone otherwise), and no switch in Breath of the Wild's Settings pane (build_ipa.py)."""
-    def test_switch_off_by_default_and_docked_at_1600x900(self):
+    """Settings › Full HD (docked): off by default, for both games. Tears of the Kingdom renders its scene at 1600x900
+    (1.4.3 renders 960x540 on the phone otherwise); Breath of the Wild's docked branch renders 1920x1080 and its
+    Settings pane says so (build_ipa.py)."""
+    def test_switch_off_by_default_and_docked(self):
         import plistlib, re
         ios = TOOLS.parent
         specs = plistlib.loads((ios/'Settings.bundle/Root.plist').read_bytes())['PreferenceSpecifiers']
@@ -104,14 +105,20 @@ class FullHD(unittest.TestCase):
         table = preset.group(0) if preset else ''
         for value in ('"docked"', '"1080"', '"1600x900"'):
             self.assertIn(value, table)
-        # Breath of the Wild keeps its handheld operation mode: the exception lives inside one helper, so neither branch
-        # repeats the #ifndef. The only other site is visionOS's own platform default.
-        self.assertIn('#ifndef GAME_BOTW\n    setenv("TOTK_OPERATION_MODE", mode, 1);\n#else\n    (void)mode;', main)
+        # The start screen's pick is handed over again, with overwrite=1, through the same table.
+        self.assertIn('if (prenv.drawable) setenv("TOTK_IOS_DRAWABLE_H", prenv.drawable, 1);', main)
+        # Both games have the switch: Breath of the Wild's docked branch renders 1920x1080 too (ad35dfa), so no
+        # game-specific exception is left in the helper. The only other operation-mode site is visionOS's default.
+        self.assertNotIn('#ifndef GAME_BOTW', main)
         vision = 'setenv("TOTK_OPERATION_MODE","docked",1);'
         self.assertIn(vision, main)
-        self.assertEqual(main.replace(vision, '').count('setenv("TOTK_OPERATION_MODE",'), 2,
-                         'the two operation-mode sites are the helper\'s two branches')
-        self.assertIn("'      - path: Gen/Settings.bundle'", (TOOLS/'build_ipa.py').read_text())
+        self.assertEqual(main.replace(vision, '').count('setenv("TOTK_OPERATION_MODE",'), 1,
+                         'the other operation-mode site is the helper')
+        build = (TOOLS/'build_ipa.py').read_text()
+        self.assertIn("'      - path: Gen/Settings.bundle'", build)
+        self.assertIn("s.get('Key')=='TOTK_DOCKED'", build)
+        self.assertIn("specs[at-1]['FooterText']", build)
+        self.assertNotIn('del specs[at-1:at+1]', build)
 
     def test_botw_pane_drops_totk_only_rows(self):
         import plistlib
@@ -144,6 +151,34 @@ class FullHD(unittest.TestCase):
         scene = [s for s in values['PreferenceSpecifiers'] if s.get('Key') == 'TOTK_RENDER_RES'][0]
         self.assertIn(match.group(1) if match else '', scene['Values'])
 
+
+
+class StartScreen(unittest.TestCase):
+    """The start screen (ios/Sources/start_screen.m): the game starts from its button, the picture and frame rate are
+    applied then (apply_display_settings in main.m), the picture row only where the Settings pane has Full HD."""
+    def test_boots_from_the_start_screen_with_the_settings_applied_there(self):
+        import re
+        ios = TOOLS.parent
+        main = (ios/'Sources/main.m').read_text()
+        self.assertIn('#import "start_screen.h"', main)
+        start = re.search(r'void \(\^start\)\(void\) = \^\{(.*?)\n    \};', main, re.S)
+        self.assertTrue(start, 'the start screen before the boot')
+        self.assertIn('TOTKStartView alloc] initWithFrame:self.view.bounds onStart:start]', main)
+        # a script's run (TOTK_START_SCREEN=0) starts the same way without the screen (after PR #1174)
+        self.assertRegex(main, r'getenv\("TOTK_START_SCREEN"\);\n    if \(screen && !strcmp\(screen, "0"\)\) start\(\);')
+        body = start.group(1)
+        self.assertLess(body.index('apply_display_settings()'), body.index('runtime_ios_sync_drawable'))
+        self.assertLess(body.index('runtime_ios_sync_drawable'), body.index('boot]'))
+        finish = main.index('- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:')
+        self.assertNotIn('boolForKey:@"TOTK_DOCKED"', main[finish:], 'Full HD is applied when the game starts, not at launch')
+        self.assertNotIn('stringForKey:@"TOTK_PHONE_FPS"', main[finish:])
+
+    def test_shows_only_what_the_settings_pane_offers_and_writes_the_same_defaults(self):
+        screen = (TOOLS.parent/'Sources/start_screen.m').read_text()
+        self.assertIn('settingsPaneHas:@"TOTK_DOCKED"', screen)
+        for key in ('forKey:@"TOTK_DOCKED"', 'forKey:@"TOTK_PHONE_FPS"'):
+            self.assertIn(key, screen)
+        self.assertNotIn('PLAYSHELF', screen.upper(), 'no launcher name on the game\'s screen')
 
 if __name__ == '__main__':
     unittest.main()

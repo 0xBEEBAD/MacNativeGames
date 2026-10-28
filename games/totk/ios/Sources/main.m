@@ -13,6 +13,7 @@
 #include "dmsh_chain.h"
 #include "settings_map.h"
 #import "touch_pad.h"
+#import "start_screen.h"
 
 int totk_host_main(int argc, char **argv);
 void runtime_ios_attach_layer(CAMetalLayer *layer, UIView *host);
@@ -75,6 +76,9 @@ static NSString *seed_unpack(NSString *base, NSString *dest, void (^progress)(ui
 static void *run_host(void *unused) { (void)unused; return (void *)(intptr_t)totk_host_main(3, host_argv); }
 /* Key 1's settings panel is Mac only (runtime/frontend.m). */
 void runtime_settings_toggle(void) {}
+#if !TARGET_OS_VISION
+static void apply_display_settings(void);   // below, next to the pane helpers it uses
+#endif
 
 @interface TOTKMetalView : UIView @end
 @implementation TOTKMetalView
@@ -112,6 +116,24 @@ void runtime_settings_toggle(void) {}
         runtime_boot_status(zh ? "无法开始游戏" : "Cannot start the game", g_no_game_data.UTF8String);
         return;
     }
+#if TARGET_OS_VISION
+    [self boot];
+#else
+    __weak TOTKGameController *weak = self;
+    void (^start)(void) = ^{
+        apply_display_settings();
+        runtime_ios_sync_drawable(weak.gameView);   // the drawable follows the chosen picture (TOTK_IOS_DRAWABLE_H)
+        [weak boot];
+    };
+    /* A run started by a script skips the start screen, which would wait for a tap: devicectl ... --environment-variables
+       '{"TOTK_START_SCREEN":"0"}'. The Settings app's choices apply as they are (after PR #1174). */
+    const char *screen = getenv("TOTK_START_SCREEN");
+    if (screen && !strcmp(screen, "0")) start();
+    else [self.view addSubview:[[TOTKStartView alloc] initWithFrame:self.view.bounds onStart:start]];
+#endif
+}
+- (void)boot {
+    BOOL zh = [NSLocale.preferredLanguages.firstObject hasPrefix:@"zh"];
     if (g_seed_pack) {   // shaders installed as a pack: unpack once, on screen, then start (not on the main thread: a long launch is killed)
         static const char *stage_zh = "正在准备着色器（更新后只做一次）", *stage_en = "Preparing the shaders (once after an update)";
         const char *stage = zh ? stage_zh : stage_en;
@@ -206,15 +228,10 @@ static NSDictionary *pref_row(NSDictionary *root, NSString *key) {
     return nil;
 }
 #endif
-/* Both layers hand their operation mode and frame pacing over through these two, so the GAME_BOTW exception and the
-   overwrite policy exist once. */
+/* Both layers hand their operation mode and frame pacing over through these two, so the overwrite policy exists once.
+   Breath of the Wild has the same switch since its docked branch renders the scene at 1920x1080 (ad35dfa). */
 static void apply_operation_mode(const char *mode) {
-#ifndef GAME_BOTW
     setenv("TOTK_OPERATION_MODE", mode, 1);
-#else
-    (void)mode;   // Breath of the Wild has no docked settings
-    setenv("TOTK_OPERATION_MODE", "handheld", 1);
-#endif
 }
 /* overwrite: the custom layer owns its keys (1); the presets keep a devicectl value in place (0) and never clear. */
 static void apply_frame_env(const totk_frame_env *e, int overwrite) {
@@ -223,6 +240,25 @@ static void apply_frame_env(const totk_frame_env *e, int overwrite) {
     if (e->phone_fps) setenv("TOTK_PHONE_FPS", e->phone_fps, overwrite);
     else if (overwrite) unsetenv("TOTK_PHONE_FPS");
 }
+
+#if !TARGET_OS_VISION
+/* The picture and the frame rate, from the rows the Settings app and the start screen (start_screen.m) write; applied
+   just before the game thread starts. The start screen may have changed them after didFinishLaunching handed the pane
+   over, so they go again with overwrite=1. The mapping is settings_map.c's, which the pane's own presets use too. */
+static void apply_display_settings(void) {
+    NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+    totk_preset_env prenv;
+    totk_preset_env_build([d boolForKey:@"TOTK_DOCKED"], &prenv);
+    if (prenv.drawable) setenv("TOTK_IOS_DRAWABLE_H", prenv.drawable, 1);
+    setenv("TOTK_MFX_OUTPUT", prenv.output_upscale, 1);
+    apply_operation_mode(prenv.operation);
+    if (prenv.scene) setenv("TOTK_RENDER_RES", prenv.scene, 1);
+    // Frame rate: Settings.bundle › TOTK_PHONE_FPS, or the 60 / 30 button of the touch controls, which saves it here too.
+    NSString *fps = [d stringForKey:@"TOTK_PHONE_FPS"] ?: @"60";
+    totk_frame_env fe;
+    if (totk_preset_frame_env_build(fps.UTF8String, &fe)) apply_frame_env(&fe, 1);
+}
+#endif
 
 /* The Settings app pane is the single source of defaults: every TOTK_* row with a DefaultValue is registered, so the
    game sees the same defaults before the player changes anything, then handed to the runtime as an environment
@@ -440,7 +476,14 @@ static void apply_settings(void) {
     setenv("TOTK_RENDER_RES","1600x900",0);   // avoid the iPhone's default 960x540 in 1.4.3
     setenv("TOTK_MFX_UPSCALE","0",0);
     setenv("TOTK_FPS_OVERLAY","0",0);
+#else
+    /* The picture and frame rate are applied when the game starts (apply_display_settings), after the start screen. */
 #endif
+    // Game language: the Settings app (Settings.bundle › TOTK_LANG) stores the choice in our defaults; empty means the
+    // system language, which is what the runtime already follows. iOS 27 does not honour Info.plist LSEnvironment, so
+    // the value must be applied here. overwrite=0 keeps devicectl --environment-variables winning when testing from the Mac.
+    NSString *lang = [NSUserDefaults.standardUserDefaults stringForKey:@"TOTK_LANG"];
+    if (lang.length>0&&lang.length<8) setenv("TOTK_LANG",lang.UTF8String,0);
     setenv("TOTK_ROMFS_PATCHES",[res stringByAppendingPathComponent:@"romfs-patches"].fileSystemRepresentation,1);
     setenv("TOTK_ROMFS_PATCHES_OUT",[res stringByAppendingPathComponent:@"romfs-patches-out"].fileSystemRepresentation,1);
     setenv("TOTK_SHARED_FONTS",[res stringByAppendingPathComponent:@"shared-fonts"].fileSystemRepresentation,1);
@@ -477,6 +520,12 @@ static void apply_settings(void) {
     setenv("TOTK_ROMFS_PROOF_DIR",docs.fileSystemRepresentation,1);   // hash the 17 GB RomFS once, not on every launch
     for (NSString *name in @[@"TOTK_GPU_ALLOW_SUBMIT",@"TOTK_GPU_WIDEN",@"TOTK_GPU_BLOCKRT",@"TOTK_GPU_MIDCLEAR"]) setenv(name.UTF8String,"1",1);
     setenv("TOTK_SLOT_OWNER","user",0); setenv("TOTK_SLOT_PURPOSE","player",0);
+    /* Settings › Controller rumble / Controller gyro: the runtime reads TOTK_RUMBLE / TOTK_GYRO (runtime/feedback_settings.h,
+       on unless "0"); a switch the player turned off is passed on, an explicit devicectl variable still wins (after PR #432). */
+    for (NSString *key in @[@"TOTK_RUMBLE", @"TOTK_GYRO"]) {
+        id saved = [NSUserDefaults.standardUserDefaults objectForKey:key];
+        if (saved && ![saved boolValue]) setenv(key.UTF8String, "0", 0);
+    }
     unsetenv("TOTK_AUTOLOAD");
     chdir(docs.fileSystemRepresentation);
     host_argv[0] = strdup("TOTK"); host_argv[1] = strdup(res.fileSystemRepresentation); host_argv[2] = strdup("boot");

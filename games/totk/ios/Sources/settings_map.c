@@ -38,10 +38,15 @@ int totk_frame_env_build(const char *cap, totk_frame_env *out) {
 }
 
 /* The Full HD preset is the game's docked settings as the Vision Pro build uses them: 1920x1080 output on a 1080-row
-   drawable with the scene at 1600x900. Off is the handheld default of the runtime (no drawable or scene override). */
+   drawable with the scene at 1600x900. Off is the handheld default of the runtime (no drawable or scene override).
+   Breath of the Wild renders its docked scene through its own patch (game_patches_botw.c patch_render_1080) and its
+   pane has no scene row, so the scene is left to the game there. */
 int totk_preset_env_build(int docked, totk_preset_env *out) {
     *out = docked ? (totk_preset_env){"docked", "1080", "1600x900", "0"}
                   : (totk_preset_env){"handheld", NULL, NULL, "0"};
+#ifdef GAME_BOTW
+    out->scene = NULL;
+#endif
     return 1;
 }
 

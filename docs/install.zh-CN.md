@@ -227,4 +227,3 @@ python3.14 games/totk/ios/tools/install_device.py "<文件夹>/TOTK-Vision.app" 
 - 王国之泪：本体 1.0.0，可加 1.1.2、1.2.1 或 1.4.3 更新。旷野之息：1.6.0 和 1.9.0。其他版本、压缩格式的本体和个性化票据不支持。
 - 没有联网功能，没有 amiibo。
 - 第一次遇到新着色器时可能卡顿；本机缓存和[公共着色器清单](shader-list.md)会减少卡顿。
-- 长时间游玩时，显卡已分配的内存会增长。Metal 分配超过预算时，Mac App 会停止游戏。预算是本机内存的 30%，最低 5,000 MB；`open --env TOTK_GPU_BUDGET_MB=<MB> "Tears of the Kingdom.app"` 可以改成别的预算。
