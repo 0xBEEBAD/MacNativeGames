@@ -181,6 +181,22 @@ def check_game_data(data, res, version):
                                  f'with build_app.py is required')
 
 
+def check_overlays(res, version):
+    """The picture-size RomFS overlays (romfs-patches-out/<size>/overlay.json) whose recorded script_sha256 is not this
+    repository's make_output_res_overlay.py: those update_runtime.py cannot renew, only a full rebuild can (#1182)."""
+    script = build_app.REPO / 'games/totk/scripts/make_output_res_overlay.py'
+    want = sha256(script) if script.is_file() else None
+    stale = []
+    for record in sorted((res / f'extracted/{version}/romfs-patches-out').glob('*/overlay.json')):
+        try:
+            found = json.loads(record.read_text()).get('script_sha256')
+        except (OSError, ValueError):
+            found = None
+        if want is None or found != want:
+            stale.append(record.parent.name)
+    return stale
+
+
 def rewriter_sha256():
     """The SHA-256 of this repository's rewriter, as patch_nso.py records itself in build_src.sha256."""
     return sha256(build_app.GAME / 'third_party/d2r/patch_nso.py')
@@ -322,8 +338,15 @@ def main(argv):
     data = game_data(tree, res, version, logs, env)
     check_game_data(data, res, version)
     check_rewriter(data, res, version, rewriter_sha256())
-    say('   the app\'s code modules are this repository\'s rewrites and its game data matches its game files: updating '
-        'the runtime is enough, no full rebuild is needed')
+    stale_overlays = check_overlays(res, version)
+    if stale_overlays:
+        say(f'   the app\'s picture-size RomFS overlays ({", ".join(stale_overlays)}) were made by another '
+            f'make_output_res_overlay.py than this repository\'s: the runtime is updated, but only a full rebuild with '
+            f'build_app.py renews those overlays (after PR #1222)')
+    else:
+        say('   the app\'s code modules are this repository\'s rewrites, its game data matches its game files and its '
+            'picture-size overlays its make_output_res_overlay.py: updating the runtime is enough for those. The other '
+            'RomFS patches the build made (romfs-patches) keep no record to check here: after changes to them, rebuild')
     if args.seed:
         check_work_files(tree, data, version)
         if not stale:
