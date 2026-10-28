@@ -146,7 +146,7 @@
 			<key>DefaultValue</key>
 			<true/>
 			<key>FooterText</key>
-			<string>只对带触感的手柄生效 · applies to controllers with haptics</string>
+			<string>只对带触感的手柄生效；关掉后手机本身的震动也一起关 · applies to controllers with haptics; off also turns the phone's own vibration off</string>
 		</dict>
 		<dict>
 			<key>Type</key>

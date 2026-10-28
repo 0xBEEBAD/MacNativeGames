@@ -143,7 +143,8 @@ static BOOL start_player(int side, float intensity, float sharpness, uint64_t no
    paths above, as Apple's GameController API is the only controller HID access there. */
 #if TARGET_OS_OSX
 /* ---- rumble written straight to a Switch Pro Controller (2026-10-19) ----
-   The 8BitDo controller in Switch mode (057e:2009) gets GCDeviceHaptics with both handles, Core Haptics plays without an   error (a BOTW session: amplitude 0.20, "played left 0.5 s / right 0.5 s"), yet the controller never vibrates. So a
+   The 8BitDo controller in Switch mode (057e:2009) gets GCDeviceHaptics with both handles, Core Haptics plays without an
+   error (a BOTW session: amplitude 0.20, "played left 0.5 s / right 0.5 s"), yet the controller never vibrates. So a
    controller GameController files as a Switch Pro Controller gets the game's values as they are -- they already are
    Switch HD rumble, two bands per side -- in output report 0x10 on its HID device (shared with the motion below), after
    subcommand 0x48 turns vibration on, as SDL does. Encoding from SDL / dekuNukem's notes: frequency code

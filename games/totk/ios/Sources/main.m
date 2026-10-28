@@ -367,6 +367,12 @@ static void audio_observe(void) {
     setenv("TOTK_ROMFS_PROOF_DIR",docs.fileSystemRepresentation,1);   // hash the 17 GB RomFS once, not on every launch
     for (NSString *name in @[@"TOTK_GPU_ALLOW_SUBMIT",@"TOTK_GPU_WIDEN",@"TOTK_GPU_BLOCKRT",@"TOTK_GPU_MIDCLEAR"]) setenv(name.UTF8String,"1",1);
     setenv("TOTK_SLOT_OWNER","user",0); setenv("TOTK_SLOT_PURPOSE","player",0);
+    /* Settings › Controller rumble / Controller gyro: the runtime reads TOTK_RUMBLE / TOTK_GYRO (runtime/feedback_settings.h,
+       on unless "0"); a switch the player turned off is passed on, an explicit devicectl variable still wins (after PR #432). */
+    for (NSString *key in @[@"TOTK_RUMBLE", @"TOTK_GYRO"]) {
+        id saved = [NSUserDefaults.standardUserDefaults objectForKey:key];
+        if (saved && ![saved boolValue]) setenv(key.UTF8String, "0", 0);
+    }
     unsetenv("TOTK_AUTOLOAD");
     chdir(docs.fileSystemRepresentation);
     host_argv[0] = strdup("TOTK"); host_argv[1] = strdup(res.fileSystemRepresentation); host_argv[2] = strdup("boot");
