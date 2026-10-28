@@ -57,7 +57,7 @@ float runtime_rumble_gain(void) { return fakeGain; }
 void runtime_rumble_gain_set(float gain) { fakeGain = gain; }
 /* gfx/nvn/hle_nvn.c's frame lock (its pacing is checked by probe-gfx's present-interval probe). */
 static int fakeLock;
-void nvn_fps_lock_set(int fps) { fakeLock = fps == 30 || fps == 40 || fps == 60 ? fps : 0; }
+void nvn_fps_lock_set(int fps) { if (totk_fps_limit_valid(fps)) fakeLock = fps; }
 int nvn_fps_lock(void) { return fakeLock; }
 /* runtime/gamepad_feedback.m's DualSense bow trigger switch without a controller. */
 static int fakeTriggers = 1, fakeTriggersLocked, fakeTriggersAvailable = 1;
@@ -141,9 +141,58 @@ static void persistence_probe(const char *action) {
     assert(runtime_output_mode() == OUTPUT_MODE_NATIVE && fabsf(runtime_aspect_ratio() - 21.0f / 9) < 0.001f);
 }
 
+/* Only row models and settings functions: no NSApplication, window or GPU. */
+static TOTKSettingRow *frame_row(NSString *title) {
+    for (TOTKSettingRow *r in settings_rows()) if ([r.title isEqualToString:title]) return r;
+    abort();
+}
+static void frame_probe(void) {
+    assert(getenv("SETTINGS_TEST_DIR"));
+    unsetenv("TOTK_MFX");
+    TOTKSettingRow *lock=frame_row(@"Frame lock"), *interp=frame_row(@"Frame interpolation (MetalFX)");
+    assert(([lock.values isEqualToArray:@[@0,@30,@40,@60,@72,@90,@120]] && lock.set));
+    assert(fakeLock==0); settings_restore_begin(); assert(fakeLock==0);
+    const int rates[]={0,30,40,60,72,90,120};
+    for(unsigned i=0;i<sizeof rates/sizeof *rates;i++){
+        int fps=rates[i]; char expected[32];
+        if(fps)snprintf(expected,sizeof expected,"lock-%d",fps);else strcpy(expected,"off");
+        mfx_set(MFX_OFF); lock.set(fps);
+        assert(fakeLock==fps && mfx_requested()==MFX_OFF);
+        assert(!strcmp(savedName,"graphics-frame.txt") && !strcmp(savedWord,expected));
+        fakeLock=0; settings_restore_begin(); assert(fakeLock==fps && mfx_requested()==MFX_OFF);
+    }
+    lock.set(72); interp.set(MFX_40);
+    assert(fakeLock==0 && mfx_requested()==MFX_40 && !strcmp(savedWord,"interp-2"));
+    mfx_set(MFX_OFF); settings_restore_begin(); assert(fakeLock==0 && mfx_requested()==MFX_40);
+    lock.set(90); assert(mfx_requested()==MFX_OFF && !strcmp(savedWord,"lock-90"));
+    interp.set(MFX_30); interp.set(MFX_OFF);
+    assert(fakeLock==0 && !strcmp(savedWord,"off"));
+    lock.set(120);
+    for(unsigned i=0;i<2;i++){
+        setenv("TOTK_MFX",i?"interpmax":"0",1);fakeLock=0;mfx_set(i?MFX_MAX:MFX_OFF);
+        settings_restore_begin();
+        assert(fakeLock==0 && mfx_requested()==(i?MFX_MAX:MFX_OFF));
+        assert(!frame_row(@"Frame lock").set);
+        char word[32]; assert(runtime_setting_word("graphics-frame.txt",word,sizeof word) && !strcmp(word,"lock-120\n"));
+    }
+    unsetenv("TOTK_MFX");mfx_set(MFX_OFF);
+    const char *bad[]={"lock-0","lock-73","lock--1","lock-90junk","lock-120 trailing","invalid"};
+    for(unsigned i=0;i<sizeof bad/sizeof *bad;i++){
+        runtime_setting_save("graphics-frame.txt",bad[i],"test");fakeLock=0;settings_restore_begin();assert(fakeLock==0);
+    }
+    runtime_setting_save("graphics-frame.txt","lock-72  ","test");settings_restore_begin();assert(fakeLock==72);
+    runtime_input_key_synthetic(25,1);runtime_input_key_synthetic(25,0);assert(fakeLock==72); /* key 9 is unassigned */
+    NSString *path=[@(getenv("SETTINGS_TEST_DIR")) stringByAppendingPathComponent:@"graphics-frame.txt"];
+    assert([NSFileManager.defaultManager removeItemAtPath:path error:nil]);fakeLock=0;settings_restore_begin();assert(fakeLock==0);
+    unsetenv("SETTINGS_TEST_DIR");lock.set(90); /* no directory: no player file is written */
+    puts("pass: frame lock choices, shared persistence, interpolation, overrides, invalid/deleted files, key 9 inert");
+}
+
 int main(int argc, const char **argv) { @autoreleasepool {
+    if (argc==2 && !strcmp(argv[1],"frame")) { frame_probe(); return 0; }
     [NSApplication sharedApplication];
     if (argc == 2) { persistence_probe(argv[1]); puts("pass: settings persistence"); return 0; }
+    unsetenv("TOTK_MFX"); /* priority/disabled row covered by the headless frame probe */
     setenv("TOTK_OUTPUT_RES", "2560x1440", 1);   /* the native size the resolution row names */
     settings_test_output_init();
     // In-memory fixture only: do not start the timer or touch a player's profile.
@@ -179,6 +228,9 @@ int main(int argc, const char **argv) { @autoreleasepool {
     pick(@"Frame lock", @"30 fps"); assert(fakeLock == 30);
     pick(@"Frame lock", @"40 fps"); assert(fakeLock == 40);
     pick(@"Frame lock", @"60 fps"); assert(fakeLock == 60);
+    pick(@"Frame lock", @"72 fps"); assert(fakeLock == 72);
+    pick(@"Frame lock", @"90 fps"); assert(fakeLock == 90);
+    pick(@"Frame lock", @"120 fps"); assert(fakeLock == 120);
     pick(@"Frame lock", @"Off"); assert(fakeLock == 0);
     nvn_fps_lock_set(60); shows(@"Frame lock", @"60 fps"); nvn_fps_lock_set(0);
     /* Frame lock and interpolation exclude each other: picking one turns the other off, both rows show it at once. */
@@ -197,7 +249,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
     mfx_set(MFX_MAX); shows(@"Frame interpolation", @"Unlimited");
     pick(@"Frame interpolation", @"40+40"); assert(mfx_requested() == MFX_40);
     pick(@"Frame interpolation", @"50+50"); assert(mfx_requested() == MFX_50);
-    assert(menu(@"Frame interpolation").numberOfItems == 5 && menu(@"Frame lock").numberOfItems == 4);
+    assert(menu(@"Frame interpolation").numberOfItems == 5 && menu(@"Frame lock").numberOfItems == 7);
     pick(@"Frame interpolation", @"Off"); mfx_latch(); assert(!mfx_enabled());
 
     /* Resolution: the player picks; 1080p without MetalFX at the start. */

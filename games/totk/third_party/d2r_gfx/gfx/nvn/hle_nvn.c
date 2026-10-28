@@ -2446,14 +2446,15 @@ static int phone_holds_30(void) {
 }
 int runtime_phone_fps(void) { return phone_holds_30() ? 30 : 60; }
 void runtime_phone_fps_set(int fps) { atomic_store(&g_phone_hold30, fps == 30); fprintf(stderr, "[totk] phone frame rate: %s\n", fps == 30 ? "held at 30" : "up to 60"); }
-/* The frame lock (the Mac settings panel, runtime/settings_panel.h; user 2026-10-25 "锁帧"): 0 off, 30, 40 or 60. The game is
+/* The frame lock (the Mac settings panel, runtime/settings_panel.h; user 2026-10-25 "锁帧"): 0 off, 30, 40, 60, 72, 90 or 120. The game is
    then paced at exactly that rate as the 30 fps hold above does it (display ticks where the rate divides the display's,
    our own clock otherwise), with the uncapped clock suspended; the real-time frame step keeps game speed right. A movie
    or the phone's 30 fps hold still wins; so do the interpolation modes that hold the game (30+30, 40+40, 50+50), which the
    panel never leaves on together with a lock. */
+#include "totk_fps_limit.h"
 static _Atomic int g_fps_lock;
 void nvn_fps_lock_set(int fps) {
-    fps = fps == 30 || fps == 40 || fps == 60 ? fps : 0;
+    if (!totk_fps_limit_valid(fps)) return;
     if (atomic_exchange(&g_fps_lock, fps) != fps) { if (fps) LOG("[nvn] 锁帧：%d 帧", fps); else LOG("[nvn] 锁帧：关"); }
 }
 int nvn_fps_lock(void) { return atomic_load(&g_fps_lock); }
