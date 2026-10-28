@@ -74,6 +74,24 @@ int main(int argc, char **argv) { @autoreleasepool {
     check(motionMouse == 0 && feeds == before, "TOTK_GYRO=0 (no six-axis device for the game): no mouse gyro either");
     runtime_mouse_set(0);
 
+    /* The settings panel's sensitivity: 50 with no file, a pick saved and applied in the middle of mouse mode, read back at
+       the next start, a bad word falls back to 50, and TOTK_MOUSE_SENSITIVITY decides over all of it. */
+    char sens[1100]; snprintf(sens, sizeof sens, "%s/mouse-sensitivity.txt", argv[1]);
+    check(runtime_mouse_sensitivity() == 50 && !runtime_mouse_sensitivity_locked(), "sensitivity: 50 with no file");
+    gyroOn = 1; runtime_mouse_set(1); runtime_mouse_sensitivity_set(100);
+    runtime_mouse_move(5, 0); mouse_tick(); s = settle();
+    check(file_says(sens, "100\n") && runtime_mouse_sensitivity() == 100 && abs(s.rx - 16384) <= 1, "sensitivity 100: saved, and 5 points is half the stick at once");
+    runtime_mouse_sensitivity_set(0); runtime_mouse_sensitivity_set(101);
+    check(runtime_mouse_sensitivity() == 100 && file_says(sens, "100\n"), "sensitivity out of 1-100: ignored");
+    runtime_mouse_set(0);
+    f = fopen(sens, "w"); fputs("30\n", f); fclose(f); atomic_store(&mouseSensitivity, 0);
+    check(runtime_mouse_sensitivity() == 30, "the next start reads mouse-sensitivity.txt");
+    f = fopen(sens, "w"); fputs("fast\n", f); fclose(f); atomic_store(&mouseSensitivity, 0);
+    check(runtime_mouse_sensitivity() == 50, "a word other than 1-100: 50");
+    setenv("TOTK_MOUSE_SENSITIVITY", "20", 1); runtime_mouse_sensitivity_set(90);
+    check(runtime_mouse_sensitivity_locked() && runtime_mouse_sensitivity() == 20 && file_says(sens, "fast\n"), "TOTK_MOUSE_SENSITIVITY decides; a pick is not saved");
+    unsetenv("TOTK_MOUSE_SENSITIVITY");
+
     printf("{\"status\":\"%s\",\"probe\":\"mouse\",\"checked\":%d,\"failures\":%d}\n", failures ? "fail" : "pass", checked, failures);
     return failures != 0;
 }}

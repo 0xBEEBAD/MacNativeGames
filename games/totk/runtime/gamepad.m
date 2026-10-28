@@ -356,7 +356,8 @@ static void hid_pad_start(void) {}
    left attack, right draw the bow with left to shoot, middle target), so controls.txt can change them. Movement goes to
    runtime/mouse_look.h, ticked every 10 ms by a timer while mouse mode is on: the right stick (the stronger of it and a
    controller's) and, unless TOTK_MOUSE_GYRO=0 or the game has no six-axis device (TOTK_GYRO=0), the gyro, which the
-   mouse then has to itself (runtime_motion_mouse). Settings: TOTK_MOUSE_SENSITIVITY 1-100 (50), TOTK_MOUSE_INVERT_Y=1,
+   mouse then has to itself (runtime_motion_mouse). Settings: TOTK_MOUSE_SENSITIVITY 1-100 (50; else the settings
+   panel's, in mouse-sensitivity.txt), TOTK_MOUSE_INVERT_Y=1,
    TOTK_MOUSE_COUNTERWEIGHT, TOTK_MOUSE_DECAY, TOTK_MOUSE_MIN_DECAY 0-100 (20, 18, 6). */
 static _Atomic int mouseMode;
 static unsigned mouseButtons;                  /* main thread; bit i = mouse button i (0 left, 1 right, 2 middle, 3, 4) */
@@ -378,11 +379,44 @@ static void mouse_tick(void) {
     if (feed) runtime_motion_feed_mouse(acc, gyro, runtime_now_ns());
 }
 
+/* The settings panel's sensitivity row (key 1, runtime/settings_panel.h): TOTK_MOUSE_SENSITIVITY decides when set (the
+   row greyed out), else mouse-sensitivity.txt, else 50. A pick is saved and applies at once, also in the middle of a turn. */
+static _Atomic int mouseSensitivity;           /* 0: mouse-sensitivity.txt not read yet */
+int runtime_mouse_sensitivity_locked(void) { return getenv("TOTK_MOUSE_SENSITIVITY") != NULL; }
+int runtime_mouse_sensitivity(void) {
+    if (runtime_mouse_sensitivity_locked()) return mouse_look_setting(getenv("TOTK_MOUSE_SENSITIVITY"), 1, 100, 50);
+    int s = atomic_load(&mouseSensitivity);
+    if (s) return s;
+    char path[4096], word[16] = {0};
+    s = 50;
+    if (setting_read("mouse-sensitivity.txt", word, sizeof word, path, sizeof path)) {
+        size_t n = strlen(word);
+        while (n && (word[n - 1] == '\n' || word[n - 1] == '\r' || word[n - 1] == ' ' || word[n - 1] == '\t')) word[--n] = 0;
+        s = mouse_look_setting(word, 1, 100, 0);
+        if (!s) { fprintf(stderr, "[totk-input] %s: not a number from 1 to 100; sensitivity 50\n", path); s = 50; }
+    }
+    int none = 0;
+    atomic_compare_exchange_strong(&mouseSensitivity, &none, s);
+    return atomic_load(&mouseSensitivity);
+}
+void runtime_mouse_sensitivity_set(int sensitivity) {
+    if (runtime_mouse_sensitivity_locked() || sensitivity < 1 || sensitivity > 100) return;
+    atomic_store(&mouseSensitivity, sensitivity);
+    char word[8];
+    snprintf(word, sizeof word, "%d", sensitivity);
+    setting_write("mouse-sensitivity.txt", word, "mouse sensitivity");
+    pthread_mutex_lock(&gamepadLock);
+    mouseSettings.sensitivity = sensitivity;
+    pthread_mutex_unlock(&gamepadLock);
+    fprintf(stderr, "[totk-input] mouse sensitivity %d (settings)\n", sensitivity);
+}
+
 static void mouse_apply(int on) {   /* start or stop the ticks and the gyro takeover */
     if (on) {
         const char *g = getenv("TOTK_MOUSE_GYRO");
         MouseLookSettings settings = mouse_look_settings(getenv("TOTK_MOUSE_SENSITIVITY"), getenv("TOTK_MOUSE_INVERT_Y"),
                                                          getenv("TOTK_MOUSE_COUNTERWEIGHT"), getenv("TOTK_MOUSE_DECAY"), getenv("TOTK_MOUSE_MIN_DECAY"));
+        settings.sensitivity = runtime_mouse_sensitivity();
         int gyro = runtime_gyro_enabled() && !(g && !strcmp(g, "0"));
         pthread_mutex_lock(&gamepadLock);
         mouseSettings = settings; mouse_look_reset(&mouseLook); mouseRX = mouseRY = 0; mouseGyro = gyro;
