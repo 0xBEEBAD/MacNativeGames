@@ -60,6 +60,41 @@ typedef struct Mixer {
 static _Atomic float device_volume = 1.0f;
 static _Atomic int g_active_channels = 0;
 
+#if !TARGET_OS_IPHONE
+/* Whether the output device's own channel layout has a centre and an LFE channel (after PR #1224): a channel count of 6
+   or more alone also matches a recording interface or an 8-channel HDMI output wired to two speakers, where 5.1 would
+   send the dialogue (centre) and the surrounds to channels nobody hears. A layout that cannot be read counts as stereo;
+   TOTK_AUDIO_CHANNELS=6 forces 5.1. */
+static int layout_has_centre_and_lfe(AudioComponentInstance unit) {
+    UInt32 size = 0; Boolean writable = false;
+    if (AudioUnitGetPropertyInfo(unit, kAudioUnitProperty_AudioChannelLayout, kAudioUnitScope_Output, 0, &size, &writable) != noErr ||
+        size < sizeof(AudioChannelLayout)) return 0;
+    AudioChannelLayout *layout = malloc(size), *expanded = NULL;
+    if (!layout || AudioUnitGetProperty(unit, kAudioUnitProperty_AudioChannelLayout, kAudioUnitScope_Output, 0, layout, &size) != noErr) {
+        free(layout); return 0;
+    }
+    const AudioChannelLayout *use = layout;
+    if (layout->mChannelLayoutTag == kAudioChannelLayoutTag_UseChannelBitmap) {
+        int found = (layout->mChannelBitmap & kAudioChannelBit_Center) && (layout->mChannelBitmap & kAudioChannelBit_LFEScreen);
+        free(layout); return found;
+    }
+    if (layout->mChannelLayoutTag != kAudioChannelLayoutTag_UseChannelDescriptions) {   /* a named layout: its channels */
+        AudioChannelLayoutTag tag = layout->mChannelLayoutTag; UInt32 esize = 0;
+        if (AudioFormatGetPropertyInfo(kAudioFormatProperty_ChannelLayoutForTag, sizeof tag, &tag, &esize) == noErr &&
+            esize >= sizeof(AudioChannelLayout) && (expanded = malloc(esize)) &&
+            AudioFormatGetProperty(kAudioFormatProperty_ChannelLayoutForTag, sizeof tag, &tag, &esize, expanded) == noErr) use = expanded;
+        else { free(expanded); free(layout); return 0; }
+    }
+    int centre = 0, lfe = 0;
+    for (UInt32 i = 0; i < use->mNumberChannelDescriptions; i++) {
+        centre |= use->mChannelDescriptions[i].mChannelLabel == kAudioChannelLabel_Center;
+        lfe |= use->mChannelDescriptions[i].mChannelLabel == kAudioChannelLabel_LFEScreen;
+    }
+    free(expanded); free(layout);
+    return centre && lfe;
+}
+#endif
+
 static int detect_output_channels(AudioComponentInstance unit) {
     const char *e = getenv("TOTK_AUDIO_CHANNELS");
     if (e && !strcmp(e, "6")) return 6;
@@ -68,8 +103,13 @@ static int detect_output_channels(AudioComponentInstance unit) {
     if (unit) {
         AudioStreamBasicDescription hw_fmt = {0};
         UInt32 sz = sizeof(hw_fmt);
-        if (AudioUnitGetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &hw_fmt, &sz) == noErr) {
-            if (hw_fmt.mChannelsPerFrame >= 6) return 6;
+        if (AudioUnitGetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 0, &hw_fmt, &sz) == noErr &&
+            hw_fmt.mChannelsPerFrame >= 6) {
+            int surround = layout_has_centre_and_lfe(unit);
+            fprintf(stderr, "[totk-audio] the output has %u channels, %s: %s\n", (unsigned)hw_fmt.mChannelsPerFrame,
+                    surround ? "with a centre and an LFE channel" : "without a centre and an LFE channel in its layout",
+                    surround ? "5.1" : "stereo (TOTK_AUDIO_CHANNELS=6 forces 5.1)");
+            if (surround) return 6;
         }
     }
 #else
@@ -928,7 +968,9 @@ void audio_mixer_render(AudioRenderer *r, double seconds) {
         if (out_ch == 6) {
             for (int k = 0; k < frames; k++) {
                 for (int c = 0; c < 6; c++) {
-                    float s = (c < (int)sink->input_count && ch[c]) ? ch[c][k] : 0.0f;
+                    /* a mono sink goes to both fronts, as the stereo branch below gives it to both sides (after PR #1224) */
+                    int from = sink->input_count == 1 ? (c < 2 ? 0 : -1) : c;
+                    float s = (from >= 0 && from < (int)sink->input_count && ch[from]) ? ch[from][k] : 0.0f;
                     s *= gain;
                     out[6 * k + c] = s > 1.0f ? 1.0f : s < -1.0f ? -1.0f : s;
                 }
