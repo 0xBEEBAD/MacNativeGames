@@ -24,6 +24,7 @@ void dm_gfx_set_flag(const char *name, int value) {
 static int fakePadType = GAMEPAD_TYPE_AUTO, fakePadDetected = GAMEPAD_TYPE_PLAYSTATION, fakeMouse;
 int runtime_gamepad_type_set(int type) { return fakePadType = type; }
 int runtime_gamepad_type(int *detected) { if (detected) *detected = fakePadDetected; return fakePadType; }
+int runtime_gamepad_battery_percent(void) { return -1; }
 int runtime_mouse_set(int on) { return fakeMouse = !!on; }
 int runtime_mouse_enabled(void) { return fakeMouse; }
 void runtime_mouse_set_hook(void (*hook)(void)) { (void)hook; }
