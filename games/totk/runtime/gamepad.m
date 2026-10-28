@@ -587,6 +587,14 @@ int runtime_gamepad_type(int *detected) {
     return atomic_load(&controllerType);
 }
 
+/* For the HUD (main thread): the first controller's battery as a whole percent, -1 none or unknown. */
+int runtime_gamepad_battery_percent(void) {
+    for (GCController *controller in GCController.controllers)
+        if (controller.battery && controller.battery.batteryState != GCDeviceBatteryStateUnknown)
+            return (int)lroundf(controller.battery.batteryLevel * 100.0f);
+    return -1;
+}
+
 void runtime_gamepad_start(void) {
     if (started) return;
     started = YES;
