@@ -10,7 +10,7 @@ Inputs: the player's own base game NSP (1.0.0) and 4.0.1 update NSP, with their 
 
 | Check | Result | What it establishes |
 |---|---|---|
-| `make -C games/mk8d test` | 12 passed | Tool checksums and file set, staging (executable tools, local NuGet config, chain header), input selection by ticket (add-on content left out, other updates refused), the builder's title / add-on / version gates, the pinned-hash gate before the rewrite, offline LibHac, the pins matching the profile's build row, no RomFS path in the profile's tables |
+| `make -C games/mk8d test` | 13 passed | Tool checksums and file set, staging (executable tools, local NuGet config, chain header), input selection by ticket (add-on content left out, other updates refused), the builder's title / add-on / version gates, the pinned-hash gate before the rewrite, offline LibHac with NuGet auditing off, the pins matching the profile's build row, no RomFS path in the profile's tables |
 | `make -C games/mk8d test-gpu` (Metal validation on) | `t_cube_placeholder` 42 checks, `t_vbuf` 84, `t_geometry` 1,920; 0 failed | The copied NVN layer builds from this folder and passes its regressions on an M1 Max, among them the zero cube for a 2D array in a cube slot that this game's races need |
 
 ## The port against an unmodified upstream build
@@ -52,7 +52,16 @@ Every run printed the same single red line as upstream, `[nvn-mtl] [RED] texture
 
 ## Played by hand
 
-To be filled in.
+By the player, on the same MacBook Pro (its built-in Liquid Retina XDR display), with a DualSense Wireless Controller, docked, English, from the save folder both apps share. Both apps were named Mario Kart 8 Deluxe, and the first session ran the upstream app by mistake. Everything below is from the host logs, except the race, which the player reported:
+
+| Session | App | Result |
+|---|---|---|
+| 17:55–18:00, fullscreen | the **upstream** app built above for the comparison | The DualSense became player 1 with its gyro, its rumble on both handles. The player raced and saw no problems. To frame 16,800: 16,787 frames on screen, 743 dropped (32–40 of every 300 from frame 10,500 to 13,200), p99 over 16.7 ms in 25 of 56 windows (worst 29.2 ms), footprint 2.15–2.83 GB, no audio underrun; the host exited with 0 |
+| 18:09–18:10, in a window | **the port's app**, moved to `/Applications` | The DualSense became player 1 with its gyro. About 30 s to frame 1,800, the title and menus, no race: 81 frames dropped in the first 600, none from frame 600 to 1,500, footprint 2.09–2.17 GB, no audio underrun. The window lost focus twice; the second time the display link stalled 8.6 s (237 frames dropped) and recovered when the window came back. The host exited with 0 |
+
+Each printed the one `[RED] texture ID … not registered` line and no other.
+
+So a race by hand with a controller was played in the upstream build of the same inputs, whose rewritten modules are byte-identical to the port's. The port's own app was only started by hand (the title, the menus and the controller), and its race is the scripted one above. Fullscreen was used only in the upstream session.
 
 ## Known limitations
 
@@ -60,6 +69,7 @@ To be filled in.
 - Only 4.0.1 with no add-on content: the Booster Course Pass courses are in the update's data, but the game offers them only with the purchased add-on content, which this target does not take.
 - Online play and local wireless are unavailable by design.
 - One `[RED] texture ID … not registered` line per run, also upstream; its effect on the picture was not seen in the runs above.
+- Fullscreen on the built-in 120 Hz display (frame latency 2): the hand race in the upstream build dropped 32–40 of every 300 frames for part of the session, against 68 in the whole scripted race in a window. Fullscreen was not measured in the port's app.
 - The app is ad-hoc signed. The first start of a newly built app waited about 90 s before anything ran (both apps, presumably macOS assessing the 13 GB bundle); later starts did not. Distribution and other Macs were not tested.
 
 Screenshots, saves, logs and translated shaders used here are not in Git: they contain or derive from game content.

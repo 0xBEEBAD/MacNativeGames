@@ -12,7 +12,8 @@ Checked on an M1 Max MacBook Pro, macOS 27.0.1, with scripted runs of the built 
 
 - **Works:** boot to the title with its music, "Select a Mii" and the six default Miis, the menus with their movie previews, a full 50cc Grand Prix race at Mario Kart Stadium to the results, saves written and read again. 60 fps in the race (18,873 of 18,900 frames on screen), about 2.7 GB of memory.
 - **Not available:** Mii heads draw nothing (no MiiModel firmware data; bodies and colours show). Online Play shows "Connecting…" and returns to the menu, Wireless Play finds nothing: both are cut on purpose. The Booster Course Pass needs its purchased add-on content, which this target does not take.
-- **Not yet checked:** game controllers, the other cups, battle mode, multiplayer on one screen, long sessions. The scripted runs press buttons through `DM_KEYS`; play by hand is recorded in the [validation record](docs/validation.md#played-by-hand).
+- **By hand:** a DualSense became player 1 with its gyro in both sessions played by hand. A race with it was played in an unmodified upstream build of the same inputs, whose rewritten modules are byte-identical to this target's. This target's own app was only started by hand (the title and menus), and its race is the scripted one ([played by hand](docs/validation.md#played-by-hand)).
+- **Not yet checked:** a race by hand in this target's app, fullscreen in it, the other cups, battle mode, multiplayer on one screen, long sessions. The scripted runs press buttons through `DM_KEYS`.
 
 ## Build
 
@@ -47,6 +48,8 @@ The work folder and the app must be outside the Git checkout. Give a new output 
 The wrapper stages the runtime, scripts and tools in `<work>/source` and never reads another game's directory. The original NSPs are linked into `<work>/input`; extracted files, rewritten modules, logs, shader tables and libraries stay in `<work>/input/0100152000022000_build`, and .NET and temporary files in `<work>/cache` and `<work>/tmp`. The shader tables are made there from your files on every build (they name RomFS paths, so none is committed). Do not edit generated binaries; change the declared rules and rebuild from the original inputs. The built app needs neither Python nor .NET. It is ad-hoc signed and verified, not notarized.
 
 ## Launch, controls and saves
+
+To keep the game with your other apps, move the finished app into `/Applications` (in Finder, or `mv`); on the same disk the move is instant and takes no extra space, and the saves stay where they are. Build to a private folder and move the app afterwards rather than giving an `--output` in `/Applications`: the packer keeps its reuse key (`<app>.key`) and, while it builds, a `.partial` app next to the output.
 
 Open the app. A settings window comes first (resolution, frame rate, docked or handheld, language, rumble); **Play** starts the game.
 
