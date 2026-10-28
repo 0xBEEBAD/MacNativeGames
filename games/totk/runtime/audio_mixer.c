@@ -64,7 +64,7 @@ static int detect_output_channels(AudioComponentInstance unit) {
     const char *e = getenv("TOTK_AUDIO_CHANNELS");
     if (e && !strcmp(e, "6")) return 6;
     if (e && !strcmp(e, "2")) return 2;
-#if defined(__APPLE__) && !TARGET_OS_IPHONE
+#if !TARGET_OS_IPHONE
     if (unit) {
         AudioStreamBasicDescription hw_fmt = {0};
         UInt32 sz = sizeof(hw_fmt);
@@ -82,7 +82,7 @@ static int detect_system_channels(void) {
     const char *e = getenv("TOTK_AUDIO_CHANNELS");
     if (e && !strcmp(e, "6")) return 6;
     if (e && !strcmp(e, "2")) return 2;
-#if defined(__APPLE__) && !TARGET_OS_IPHONE
+#if !TARGET_OS_IPHONE
     AudioComponentDescription d = {kAudioUnitType_Output, kAudioUnitSubType_DefaultOutput, kAudioUnitManufacturer_Apple, 0, 0};
     AudioComponent c = AudioComponentFindNext(NULL, &d);
     if (c) {
@@ -211,7 +211,7 @@ static void output_open(Mixer *m, int rate) {
         fprintf(stderr, "[totk-audio] TOTK_AUDIO_OFF: mixing without a CoreAudio device (%d channels)\n", m->channels);
         return;
     }
-#if defined(__APPLE__) && TARGET_OS_IPHONE
+#if TARGET_OS_IPHONE
     AudioComponentDescription d = {kAudioUnitType_Output, kAudioUnitSubType_RemoteIO, kAudioUnitManufacturer_Apple, 0, 0};   /* session set up by the app */
 #else
     AudioComponentDescription d = {kAudioUnitType_Output, kAudioUnitSubType_DefaultOutput, kAudioUnitManufacturer_Apple, 0, 0};
