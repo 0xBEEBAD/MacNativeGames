@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include "nvn_mtl.h"
 #include "nvn_obj.h"
+#include "nvn_impl.h"   // NVN_BLOCKING: release the guest core only while a write-back waits
 #include "../tex/nvn_fmt_mtl.h"
 #include "../tex/nvn_deswizzle.h"
 #include "../tex/nvn_deswizzle_gpu.h"
@@ -2905,10 +2906,19 @@ static void wb_write_list(wb_ent **list, int nl, int force) {
     @autoreleasepool { wb_write_list_body(list, nl, force); }
     if (tl) totk_tl(TL_WB_OUT, (uint64_t)nl, (uint64_t)blit);
 }
+/* Cache maintenance can reach these waits without an NVN_BLOCKING entry point. Keeping the guest's virtual core
+   while sleeping here prevents its other workers from using it (#552). No renderer lock is held across the handoff;
+   reacquire the core before checking freshness or protecting pages for the CPU copy. Do not extend this guard over
+   wb_level_back: by then pages can be marked busy, and a worker faulting on them must not block core reacquisition.
+   Nested guards and host threads are no-ops. */
+static void wb_wait_gpu(wb_ent **list, int nl) {
+    NVN_BLOCKING();
+    { extern void nvn_x_drain(void) __attribute__((weak)); if (nvn_x_drain) nvn_x_drain(); }
+    WB_WAIT_GPU(list, nl)
+}
 static void wb_write_list_body(wb_ent **list, int nl, int force) {
     if (!force) { BOTW_LATE_FILTER(list, nl) } if (!nl) return;   // Breath of the Wild: renderings that land on completion are not waited for
-    { extern void nvn_x_drain(void) __attribute__((weak)); if (nvn_x_drain) nvn_x_drain(); }   // translation thread: nothing queued overtakes this read-back (as for ReadTexels)
-    WB_WAIT_GPU(list, nl)
+    wb_wait_gpu(list, nl);   // queued translation cannot overtake this read-back (as for ReadTexels)
     /* Freshness is decided for every entry before anything is written back (a write-back marks its pages written), and
        of several renderings of the same memory (texture objects over it) only the newest is written back. */
     int fresh[512];
