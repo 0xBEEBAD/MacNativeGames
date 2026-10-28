@@ -3847,8 +3847,12 @@ static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, reup_key *key
     { static int fs = -1; static uint64_t by[256], n[256], gpuby[256], last; if (fs < 0) fs = getenv("DM_TEX_FMT_STATS") != NULL;   // TOTK: bytes uploaded per NVN format (first uploads + re-uploads)
       static uint64_t b4, b3, b3t;   // BC1 block kinds: four-colour, three-colour without / with transparent texels
       if (fs && (t->d.format == 0x41 || t->d.format == 0x42 || t->d.format == 0x45 || t->d.format == 0x46)) {
+        sigjmp_buf jb, *prev = runtime_fault_guard;   // the scan reads guest memory too: guarded like the upload (after PR #1232)
+        if (!sigsetjmp(jb, 1)) { runtime_fault_guard = &jb;
         const uint8_t *m = t->mem; for (uint64_t i = 0; i + 8 <= t->L.size; i += 8) { uint16_t c0 = m[i] | m[i + 1] << 8, c1 = m[i + 2] | m[i + 3] << 8; uint32_t ix = m[i + 4] | m[i + 5] << 8 | m[i + 6] << 16 | (uint32_t)m[i + 7] << 24;
-          if (c0 > c1) b4++; else { int t3 = 0; for (int k = 0; k < 16; k++) if (((ix >> (2 * k)) & 3) == 3) t3 = 1; if (t3) b3t++; else b3++; } } }
+          if (c0 > c1) b4++; else { int t3 = 0; for (int k = 0; k < 16; k++) if (((ix >> (2 * k)) & 3) == 3) t3 = 1; if (t3) b3t++; else b3++; } }
+        } else guarded_read_fault("BC1 统计", t->mem, (size_t)t->L.size);
+        runtime_fault_guard = prev; }
       if (fs && (n[0x46] + n[0x42]) % 500 == 1) MLOG("[fmtstats] BC1 块：四色 %llu，三色无透明 %llu，三色含透明 %llu", (unsigned long long)b4, (unsigned long long)b3, (unsigned long long)b3t);
       if (fs) { uint32_t f = t->d.format & 255; by[f] += total; n[f]++; if (t->d.target != 2) gpuby[f] += total;
         if (g_bp_up_bytes - last > (256u << 20)) { last = g_bp_up_bytes; char line[2048]; size_t o = 0;
