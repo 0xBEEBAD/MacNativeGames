@@ -2630,6 +2630,8 @@ void dm_gfx_set_flag(const char *name, int v) {
     if (!strcmp(name, "cube_merge")) { atomic_store(&g_cg_on, v != 0); MLOG("[flag] cube_merge = %d", v != 0); return; }
     if (!strcmp(name, "skip_invisible")) { skv_set(v); return; }
     if (!strcmp(name, "mfx_upscale")) { mfxup_set(v < 0 ? !mfxup_enabled() : v); return; }   // TOTK_MFX_UPSCALE at run time (manual key 3 picture mode)
+    if (!strcmp(name, "mfx_temporal")) { tup_set(v < 0 ? !tup_enabled() : v); return; }   // TOTK_MFX_TEMPORAL at run time (totk_taa.m)
+    if (!strcmp(name, "tup_log")) { tup_log_frames(v); return; }
     if (!strcmp(name, "mfx_interp")) { mfx_set(v); return; }
     if (!strcmp(name, "state_reporting")) { totk_sr_set(v); return; }   // TOTK_STATE_REPORTING while playing (A/B in one session)
     if (!strcmp(name, "mfx_mv_dyn")) { mfx_set_mv_dyn(v); return; }
@@ -2695,6 +2697,9 @@ void dm_gfx_set_flag(const char *name, int v) {
     if (!strcmp(name, "deferred")) { extern void nvn_set_deferred_binds(int on); nvn_set_deferred_binds(v); return; }
     if (!strcmp(name, "framewait")) { extern void nvn_set_framewait(int on); nvn_set_framewait(v); return; }
     if (!strcmp(name, "sync_lag")) { extern void nvn_set_sync_lag(int on); nvn_set_sync_lag(v); return; }
+#ifdef GAME_BOTW
+    if (!strcmp(name, "wb_staged_nowait")) { extern void botw_wb_set_staged_skip(int on); botw_wb_set_staged_skip(v); return; }
+#endif
     if (!strcmp(name, "uncapped_interval")) { extern void nvn_set_uncapped_interval(int on); nvn_set_uncapped_interval(v); return; }
     if (!strcmp(name, "occl_visible")) { atomic_store(&g_occl_vis, v); MLOG("[flag] occl_visible = %d", v); return; }
     if (!strcmp(name, "drvfill")) { atomic_store(&g_drvfill_on, v != 0); MLOG("[flag] drvfill = %d", v != 0); return; }
@@ -2762,26 +2767,44 @@ static int wb_target_lock(const tex_t *t) {
              (unsigned long long)t->serial, t->d.width, t->d.height, (void *)t->mem, (unsigned long long)t->L.size, (unsigned long long)gone);
     return 0;
 }
-static int wb_level_back(const tex_t *t, id<MTLTexture> mt, unsigned level, unsigned layer) {   // 1 written, 0 failed, WB_POOL_GONE
+/* Every level and layer of a texture is read back with one command buffer and one wait: one blit per level and layer
+   waited for the GPU each time, 24 round trips (about 3.7 ms on the game's thread) for the 64x64 cubemap with four
+   levels that Breath of the Wild reads back every 10 frames (1.6.0, Kakariko, 2026-10-28). */
+static int wb_tex_back(const tex_t *t, id<MTLTexture> mt, unsigned layers) {   // 1 written, 0 failed, WB_POOL_GONE
     int bw, bh, bpb = nvn_fmt_bpb(t->d.format, &bw, &bh);
-    uint32_t lw = MAX(t->d.width >> level, 1u), lh = MAX(t->d.height >> level, 1u);
-    size_t lp = (size_t)((lw + bw - 1) / bw) * bpb, lr = (lh + bh - 1) / bh;
+    size_t total = 0;
+    for (unsigned l = 0; l < t->d.levels; l++) {
+        uint32_t lw = MAX(t->d.width >> l, 1u), lh = MAX(t->d.height >> l, 1u);
+        total += (size_t)((lw + bw - 1) / bw) * bpb * ((lh + bh - 1) / bh) * layers;
+    }
     /* This runs on the game's thread (nvnMemoryPoolInvalidateMappedRange), which has no autorelease pool: without one the
        autoreleased command buffer kept its blit encoder and this read-back buffer for ever (one 16 KiB buffer and one
        blit context per written-back level: Breath of the Wild writes back about 130 a second, 3.7 GB of GPU memory in 30
        minutes; TOTK's AGXG16GFamilyBuffer / BlitContext pairs growing by the thousands per lap were the same). */
     @autoreleasepool {
-    id<MTLBuffer> buf = [g_dev newBufferWithLength:lp * lr options:MTLResourceStorageModeShared];
+    id<MTLBuffer> buf = total ? [g_dev newBufferWithLength:total options:MTLResourceStorageModeShared] : nil;
     if (!buf) return 0;
     id<MTLCommandBuffer> cb = q_cb(); id<MTLBlitCommandEncoder> b = enc_b_begin(cb);
-    [b copyFromTexture:mt sourceSlice:layer sourceLevel:level sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(lw, lh, 1)
-              toBuffer:buf destinationOffset:0 destinationBytesPerRow:lp destinationBytesPerImage:lp * lr];
+    size_t off = 0;
+    for (unsigned l = 0; l < t->d.levels; l++) for (unsigned y = 0; y < layers; y++) {
+        uint32_t lw = MAX(t->d.width >> l, 1u), lh = MAX(t->d.height >> l, 1u);
+        size_t lp = (size_t)((lw + bw - 1) / bw) * bpb, lr = (lh + bh - 1) / bh;
+        [b copyFromTexture:mt sourceSlice:y sourceLevel:l sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(lw, lh, 1)
+                  toBuffer:buf destinationOffset:off destinationBytesPerRow:lp destinationBytesPerImage:lp * lr];
+        off += lp * lr;
+    }
     enc_b_end(b); cb_commit(cb); cb_wait(cb);
+    if (totk_tl_on()) totk_tl(TL_WB_STEP, 3, t->serial);
     if (!wb_target_lock(t)) return WB_POOL_GONE;
-    int bad = nvn_swizzle(&t->d, level, layer, (const uint8_t *)buf.contents, lp, t->mem);
+    const uint8_t *src = (const uint8_t *)buf.contents; int bad = 0; off = 0;
+    for (unsigned l = 0; l < t->d.levels && !bad; l++) for (unsigned y = 0; y < layers && !bad; y++) {
+        uint32_t lw = MAX(t->d.width >> l, 1u), lh = MAX(t->d.height >> l, 1u);
+        size_t lp = (size_t)((lw + bw - 1) / bw) * bpb, lr = (lh + bh - 1) / bh;
+        bad = nvn_swizzle(&t->d, l, y, src + off, lp, t->mem); off += lp * lr;
+    }
     pthread_mutex_unlock(&g_mu);
     if (bad) return 0;
-    g_wb_bytes += lp * lr;
+    g_wb_bytes += total;
     }
     return 1;
 }
@@ -2875,7 +2898,13 @@ static void wb_write_list_body(wb_ent **list, int nl, int force);
    outside the submission's pool, and game threads never drain their implicit one: every write-back's command buffer
    and staging buffer stayed alive (about 1,700 IOAccelerator regions a minute in the world) until the GPU budget
    stopped the game after 20-40 minutes. */
-static void wb_write_list(wb_ent **list, int nl, int force) { if (nl) @autoreleasepool { wb_write_list_body(list, nl, force); } }
+static void wb_write_list(wb_ent **list, int nl, int force) {
+    if (!nl) return;
+    int tl = totk_tl_on(), blit = 0;
+    if (tl) { totk_tl(TL_WB_IN, (uint64_t)nl, 0); for (int i = 0; i < nl; i++) blit |= !BOTW_WB_IS_STAGED(list[i]); }
+    @autoreleasepool { wb_write_list_body(list, nl, force); }
+    if (tl) totk_tl(TL_WB_OUT, (uint64_t)nl, (uint64_t)blit);
+}
 static void wb_write_list_body(wb_ent **list, int nl, int force) {
     if (!force) { BOTW_LATE_FILTER(list, nl) } if (!nl) return;   // Breath of the Wild: renderings that land on completion are not waited for
     { extern void nvn_x_drain(void) __attribute__((weak)); if (nvn_x_drain) nvn_x_drain(); }   // translation thread: nothing queued overtakes this read-back (as for ReadTexels)
@@ -2924,7 +2953,7 @@ static void wb_write_list_body(wb_ent **list, int nl, int force) {
         void *tok = nvn_dirty_tracked(t->mem, t->L.size) ? nvn_dirty_gpu_write_begin(t->mem, t->L.size) : NULL;
         if (!tok) dm_guest_write_prepare(t->mem, t->L.size);
         unsigned layers = t->L.layers ? t->L.layers : 1; int ok = 1; BOTW_WB_FROM_STAGE(e, ok, layers)
-        for (unsigned l = 0; l < t->d.levels && ok == 1; l++) for (unsigned y = 0; y < layers && ok == 1; y++) ok = wb_level_back(t, mt, l, y);
+        if (ok == 1 && layers) ok = wb_tex_back(t, mt, layers);   // layers 0: written back from the stage
         nvn_dirty_gpu_write_end(tok);
         if (ok == WB_POOL_GONE) { wb_ent_free(e); continue; }   // counted and logged by wb_target_lock
         if (ok) { BOTW_WB_LANDED(t) uint64_t d = ++g_wb_done; if (d <= 8 || d % 500 == 0) MLOG("[writeback] ser=%llu %ux%u nvnfmt=%#x lv%u：GPU 渲染结果写回内存（累计 %llu 张 / %llu MB，CPU 已改写而跳过 %llu 张）", (unsigned long long)t->serial, t->d.width, t->d.height, t->d.format, t->d.levels, (unsigned long long)d, (unsigned long long)(g_wb_bytes >> 20), (unsigned long long)g_wb_skip_cpu); }
@@ -6325,9 +6354,10 @@ static id<MTLSamplerState> samp_by_id(int sid) {   // 调用方持 g_rmu | Calle
     if (aniso < 0) { const char *e = getenv("TOTK_ANISO"); aniso = e ? atoi(e) : 0; aniso = aniso < 0 ? 0 : aniso > 16 ? 16 : aniso; }
     BOOL repeats = (d.sAddressMode == MTLSamplerAddressModeRepeat || d.sAddressMode == MTLSamplerAddressModeMirrorRepeat) &&
                    (d.tAddressMode == MTLSamplerAddressModeRepeat || d.tAddressMode == MTLSamplerAddressModeMirrorRepeat);
-    if (aniso > 1 && !p.cmp_mode && !p.reduction && d.minFilter == MTLSamplerMinMagFilterLinear && d.magFilter == MTLSamplerMinMagFilterLinear &&
-        d.mipFilter != MTLSamplerMipFilterNotMipmapped && d.maxAnisotropy < (NSUInteger)aniso && repeats)
-        d.maxAnisotropy = (NSUInteger)aniso;
+    BOOL material = !p.cmp_mode && !p.reduction && d.minFilter == MTLSamplerMinMagFilterLinear && d.magFilter == MTLSamplerMinMagFilterLinear &&
+                    d.mipFilter != MTLSamplerMipFilterNotMipmapped && repeats;
+    if (aniso > 1 && material && d.maxAnisotropy < (NSUInteger)aniso) d.maxAnisotropy = (NSUInteger)aniso;
+    if (material) d.lodBias = tup_mip_bias();   // TOTK_MFX_TEMPORAL_MIPBIAS (totk_taa.m): finer mip levels for a scene upscaled temporally; 0 unless set
     if (p.cmp_mode) d.compareFunction = (MTLCompareFunction)(p.cmp_func - 1);
     d.borderColor = p.border[3] > 0.5f ? (p.border[0] > 0.5f ? MTLSamplerBorderColorOpaqueWhite : MTLSamplerBorderColorOpaqueBlack) : MTLSamplerBorderColorTransparentBlack;
     if (p.reduction > 2) die("sampler reduction filter %u unsupported", p.reduction);
@@ -11958,9 +11988,12 @@ static void mfxup_queue_residency(void) {   // the upscaler's own output texture
    blending, full write mask, viewport and scissor over the whole target, no depth / stencil test) and the region starts
    at the origin; anything else keeps the game's own upscale. Perceptual colour processing: the canvas holds display
    values (dd3d1e0e copies it to the swapchain unchanged). Returns 1 when the draw was replaced.
-   This is controlled only by the manual picture mode, not by the window's output resolution. */
+   This is controlled only by the manual picture mode, not by the window's output resolution.
+   easu_site: the checks above for one draw. -1: not the upscale draw; 0: it is, with its source, the canvas, the region
+   and the colour mode; 1..5: it is, but stays (1 target / 2 blend, mask, depth / 3 textures, size / 4 viewport, scissor /
+   5 constants; the first of each kind is logged). mfxup_dock and tup_dock (TOTK_MFX_TEMPORAL) both start from it. */
 static uint64_t g_mfxup_dock_n, g_mfxup_dock_no[6];
-static int mfxup_dock(__unsafe_unretained NvShader *fs) {
+static int easu_site(__unsafe_unretained NvShader *fs, id<MTLTexture> *src_out, id<MTLTexture> *dst_out, NSUInteger *cw_out, NSUInteger *ch_out, int *mode_out) {
     /* 1.4.3's EASU variant normalizes samples by 1/3.5, then multiplies its
      * clamped result by 3.5. Those operations cancel for flat colors; adding
      * another gain would brighten the picture incorrectly. Its source retains
@@ -11968,7 +12001,7 @@ static int mfxup_dock(__unsafe_unretained NvShader *fs) {
      * scripts/upscale_color_probe.m (RGB/HDR + deliberately missing gain).
      * Both variants use the same con0 and integer output-size layout below. */
     int hdr = !strncmp(fs->key, "ac58fc18eda5f3878b16074dc28cd441644a66710f1b73954d39e57ac357561b-", 65); BOTW_MFXUP_DOCK_KEY(fs)
-    if (!hdr BOTW_AND_NOT_DOCK && strncmp(fs->key, "a3a570eb159202f14bc86479b0d3a012ecd830b8550505536eb70bf82372e4bb-", 65)) return 0;
+    if (!hdr BOTW_AND_NOT_DOCK && strncmp(fs->key, "a3a570eb159202f14bc86479b0d3a012ecd830b8550505536eb70bf82372e4bb-", 65)) return -1;
     int color_mode = hdr ? MFXUP_HDR : MFXUP_PERCEPTUAL;
     const view_t *cv = &R.rt.cview[0]; int hv = R.rt.has_cview[0];
     int why = 0;
@@ -12010,7 +12043,15 @@ static int mfxup_dock(__unsafe_unretained NvShader *fs) {
                  dst ? "有" : "无", (unsigned long)dst.width, (unsigned long)dst.height, (unsigned long)dst.textureType, (unsigned long)dst.usage,
                  (unsigned)S.color.blend_en, S.chmask.mask, (int)S.ms.a2c, (int)S.ds.dt, (int)S.ds.st,
                  S.has_vp, S.vp[0][0], S.vp[0][1], S.vp[0][2], S.vp[0][3], R.has_sc, R.sc.x, R.sc.y, R.sc.w, R.sc.h, k[0], k[1], k[2], k[3], ow, oh);
-        g_mfxup_dock_no[why]++; return 0; }
+        return why; }
+    *src_out = src; *dst_out = dst; *cw_out = cw; *ch_out = ch; *mode_out = color_mode;
+    return 0;
+}
+static int mfxup_dock(__unsafe_unretained NvShader *fs) {
+    id<MTLTexture> src = nil, dst = nil; NSUInteger cw = 0, ch = 0; int color_mode = 0;
+    int why = easu_site(fs, &src, &dst, &cw, &ch, &color_mode);
+    if (why < 0) return 0;
+    if (why) { g_mfxup_dock_no[why]++; return 0; }
     if (!mfxup_prepare(MFXUP_DOCKED, src, dst, dst.width, dst.height, color_mode)) { g_mfxup_dock_no[0]++; return 0; }   // scaler still being built (background): the game's own upscale this frame
     rp_end(); blit_close(); rs_sync();   // MetalFX encodes on the command buffer itself: the encode thread must be idle first
     pt_mark(g_cb, 'X', nil);   // TOTK_PASS_GPU: the MetalFX upscale as its own entry
@@ -12020,6 +12061,50 @@ static int mfxup_dock(__unsafe_unretained NvShader *fs) {
     g_mfxup_dock_n++; atomic_store(&g_mfxup_last, atomic_load(&g_cur_frame));
     return 1;
 }
+static void taa_queue_residency(void) {   // key 5's and the temporal upscale's textures (totk_taa.m), once they exist
+    static int added; if (added) return;
+    id<MTLResidencySet> r = taa_residency(); if (r) { [g_q4 addResidencySet:r]; added = 1; }
+}
+#ifndef GAME_BOTW
+/* TOTK_MFX_TEMPORAL (totk_taa.m tup_*, experimental): at the same draw, MetalFX temporal upscaling into the canvas, ahead of
+   the spatial path. The input is this frame's compose output (0ac9a549 writes it; the game's FXAA 22a61cb1 reads it and
+   writes the upscale's source): the picture before FXAA, on the pixel grid of the G-buffer depth. When that is not at
+   hand (not the size and format of the upscale's source, or the canvas itself), the upscale's own source; also with
+   TOTK_MFX_TEMPORAL_INPUT=fxaa (for comparisons). Returns 1 when the canvas holds the upscaled picture. */
+static __strong id<MTLTexture> g_tup_composed; static uint64_t g_tup_composed_frame;
+static uint64_t g_tup_n, g_tup_no[7];   // kept the game's or spatial upscale: [0] not ready (scaler being built, no depth or camera), [1..5] easu_site, [6] encode
+static int tup_dock(__unsafe_unretained NvShader *fs) {
+    id<MTLTexture> src = nil, dst = nil; NSUInteger cw = 0, ch = 0; int mode = 0;
+    int why = easu_site(fs, &src, &dst, &cw, &ch, &mode);
+    if (why < 0) return 0;
+    if (why) { g_tup_no[why]++; return 0; }
+    tup_note_site();
+    static int fxaa_in = -1; if (fxaa_in < 0) { const char *e = getenv("TOTK_MFX_TEMPORAL_INPUT"); fxaa_in = e && !strcmp(e, "fxaa"); }
+    id<MTLTexture> b = g_tup_composed_frame == atomic_load(&g_cur_frame) ? g_tup_composed : nil;
+    int pre = !fxaa_in && b && b != src && b != dst && b.width == src.width && b.height == src.height && b.pixelFormat == src.pixelFormat;
+    id<MTLTexture> color = pre ? b : src;
+    { static int last = -1; if (pre != last) { last = pre;
+        MLOG("[taa] temporal upscale input: %s, %lux%lu (format %lu), region %lux%lu -> canvas %lux%lu (format %lu, usage %#lx)",
+             pre ? "the compose output, before the game's FXAA" : "the upscale draw's own source (after FXAA)", (unsigned long)color.width, (unsigned long)color.height,
+             (unsigned long)color.pixelFormat, (unsigned long)cw, (unsigned long)ch, (unsigned long)dst.width, (unsigned long)dst.height,
+             (unsigned long)dst.pixelFormat, (unsigned long)dst.usage); } }
+    if (!tup_ready(color, cw, ch, dst)) { g_tup_no[0]++; return 0; }
+    rp_end(); blit_close(); rs_sync();   // the scaler encodes on the command buffer itself: the encode thread must be idle first
+    if (!tup_encode(g_cb, color, cw, ch, dst, ^(char k) { pt_mark(g_cb, k, nil); })) { g_tup_no[6]++; return 0; }   // TOTK_PASS_GPU: T motion, X scaler, Y copy
+    taa_queue_residency();
+    R.clear_c[0] = 0;   // the canvas is written in full: a clear still pending for it would wipe the picture when the UI opens the pass
+    if (MFX_CANVAS_FMT_OK(dst.pixelFormat)) g_mfx.last_c0 = R.rt.color[0]->serial;   // no replay pass opened for it: the canvas candidate canvas_learn would have taken (key 4, TOTK_MFX)
+    g_tup_n++; atomic_store(&g_mfxup_last, atomic_load(&g_cur_frame));
+    if (totk_sr_on()) atomic_store(&g_taa_last, atomic_load(&g_cur_frame));   // the frame's temporal anti-aliasing too (state reports)
+    if (g_tup_n % 1800 == 1)
+        MLOG("[taa] temporal upscale at the upscale draw, frame %llu: %llu frames; the game's or the spatial upscale kept %llu times (not ready %llu, target %llu, "
+             "blend/mask/depth %llu, textures/size %llu, viewport/scissor %llu, constants %llu, encode %llu)", (unsigned long long)atomic_load(&g_cur_frame),
+             (unsigned long long)g_tup_n, (unsigned long long)(g_tup_no[0] + g_tup_no[1] + g_tup_no[2] + g_tup_no[3] + g_tup_no[4] + g_tup_no[5] + g_tup_no[6]),
+             (unsigned long long)g_tup_no[0], (unsigned long long)g_tup_no[1], (unsigned long long)g_tup_no[2], (unsigned long long)g_tup_no[3],
+             (unsigned long long)g_tup_no[4], (unsigned long long)g_tup_no[5], (unsigned long long)g_tup_no[6]);
+    return 1;
+}
+#endif
 /* TOTK_MFX_UPSCALE: the game's compose shader 0ac9a549 (tone mapping and bloom into the canvas) samples the scene at
    texture slot 0; when that scene is smaller than the canvas (TOTK_RENDER_RES below the canvas size), upscale it with
    MetalFX first and let encode_args bind the result. Runs before the draw opens its render encoder. Docked: mfxup_dock.
@@ -12043,7 +12128,8 @@ static int mfxup_draw(NvProg *pr) {
     scene_size_note(fs);
     /* TOTK_TAA: the compose shader's scene goes through the MetalFX temporal scaler (1:1) first; encode_args binds the
        result, or the spatial upscale below takes it as its input when the scene is smaller than the canvas. The docked
-       upscale (mfxup_dock) is a later draw of another shader and reads the composed picture: unaffected. */
+       upscale (mfxup_dock) is a later draw of another shader and reads the composed picture: unaffected.
+       With TOTK_MFX_TEMPORAL taa_ready() is 0: the temporal pass is the upscale's (tup_dock). */
     id<MTLTexture> taa_out = nil;
     if (taa_ready() && TAA_COMPOSE(fs) && R.rt.n && R.rt.color[0]) {
         int tid = (int)(S.tex[1][0] & 0xfffff);
@@ -12052,12 +12138,18 @@ static int mfxup_draw(NvProg *pr) {
             rp_end(); blit_close(); rs_sync();
             taa_out = taa_encode(g_cb, src);
             if (taa_out) {
-                static int added; if (!added && taa_residency()) { [g_q4 addResidencySet:taa_residency()]; added = 1; }
+                taa_queue_residency();
                 if (totk_sr_on()) atomic_store(&g_taa_last, atomic_load(&g_cur_frame));
                 g_mfxup_src = src; g_mfxup_out = taa_out; g_mfxup_sh = fs;
             }
         }
     }
+#ifndef GAME_BOTW
+    if (tup_enabled() || tup_active()) {   // the latched state too: a frame jittered for the upscale is upscaled
+        if (TAA_COMPOSE(fs) && R.rt.n && R.rt.color[0]) { g_tup_composed = tex_mtl(R.rt.color[0]); g_tup_composed_frame = atomic_load(&g_cur_frame); }   // tup_dock's input
+        if (tup_dock(fs)) return 1;   // the temporal upscale wrote the canvas instead of this draw
+    } else if (g_tup_composed) g_tup_composed = nil;
+#endif
     if (!mfxup_enabled()) return 0;
     if (mfxup_dock(fs)) {
         static unsigned n; if (++n % 1800 == 1) { char b[200]; mfxup_stats(MFXUP_DOCKED, b, sizeof b);
@@ -12459,9 +12551,16 @@ frz_plain:;
        glows on hazy rocks (2026-10-21, found with DM_NVN_NANDRAW). Unmoved, each decal reads and writes its own pixel.
        Nor the draws counted by an occlusion query (g_vis_counting: the sphere proxies of lamps and other lights): moved by
        a sub-pixel, a small sphere covers a few more or fewer samples each frame (338 / 345 for an egg lamp), and the game
-       scales the light by that count, so lamps and what they light pulsed while standing still. */
+       scales the light by that count, so lamps and what they light pulsed while standing still.
+       TOTK_MFX_TEMPORAL (tup_active): only the proxies themselves, the draws that write no colour and no depth while
+       counting. The replay keeps counting from the game's first counter reset on (g_vis_counting stays set), so excluding
+       every draw while counting left nothing jittered (1.4.3, 2026-10-26: every draw in the G-buffer passes from that reset
+       on, 98.9 % of a run's), and the upscale had no sub-pixel detail to gather; a depth-only draw still moves with the colour draws tested
+       against it. Key 5 keeps the wider exclusion until its own A/B (the egg-lamp check) is repeated with this one. */
     double jx = 0, jy = 0; unsigned nv = di ? di->count : dw ? dw->count : 0;
-    if (taa_jittered() && nv > 6 && vo == 0 && vs == 1 && ux == 1 && uy == 1 && !g_vis_counting && !fb_fn && !att_n && !(!att_store_on() && draw_att_reads(pr, att_rs)))
+    int vis_proxy = tup_active() ? g_vis_counting && !(S.chmask.mask & (uint32_t)((1ull << (4 * (R.rt.n < 8 ? R.rt.n : 8))) - 1)) && !(S.ds.dt && S.ds.dw)
+                                 : g_vis_counting;
+    if (taa_jittered() && nv > 6 && vo == 0 && vs == 1 && ux == 1 && uy == 1 && !vis_proxy && !fb_fn && !att_n && !(!att_store_on() && draw_att_reads(pr, att_rs)))
         taa_jitter(&jx, &jy);
     if (S.has_vp) enc_r_viewport(en, (MTLViewport){vx + jx, vy + jy, vw, vh, S.dr[0], S.dr[1]});
     else enc_r_viewport(en, (MTLViewport){vx + jx, vy + jy, vw, vh, 0, 1});
@@ -15164,7 +15263,7 @@ void mtl_sr_picture(totk_sr_gfx *s, uint64_t *upscaled_at, uint64_t *antialiased
     float a = runtime_aspect_now ? runtime_aspect_now() : 0;
     s->aspect_milli = a > 0 && fabsf(a - 16.0f / 9.0f) > 0.01f ? (int)lroundf(a * 1000) : 0;
     s->upscale = mfxup_enabled() ? 1 + mfxup_output_enabled() : 0;
-    s->taa = taa_enabled(); s->fi_mode = mfx_enabled();
+    s->taa = taa_enabled(); s->fi_mode = mfx_enabled(); s->temporal = tup_enabled();
     s->present_path = __atomic_load_n(&g_rescue_mode, __ATOMIC_RELAXED) ? 2 : !__atomic_load_n(&g_dm_present_link, __ATOMIC_RELAXED);
     *upscaled_at = atomic_load(&g_mfxup_last); *antialiased_at = atomic_load(&g_taa_last);
 }
@@ -17333,12 +17432,19 @@ void botw_wb_stage_encode(void) {
     }
     g_wb_nsub = 0;
 }
+static _Atomic int g_wb_staged_skip = -1;
+int botw_wb_staged_skip_on(void) {
+    int v = atomic_load_explicit(&g_wb_staged_skip, memory_order_relaxed);
+    if (v < 0) { const char *e = getenv("TOTK_WB_STAGED_NOWAIT"); v = !(e && !strcmp(e, "0")); atomic_store(&g_wb_staged_skip, v); }
+    return v;
+}
+void botw_wb_set_staged_skip(int on) { atomic_store(&g_wb_staged_skip, on != 0); MLOG("[flag] wb_staged_nowait = %d", on != 0); }
 /* wb_write_list: an entry staged after its last rendering is swizzled from its stage (the caller waited for the fence) */
 int botw_wb_from_stage(void *ev) {
     wb_ent *e = ev; const tex_t *t = &e->t;
-    if (!e->stage || e->stage_fence < e->fence) return -1;
+    if (!WB_STAGED(e)) return -1;
     /* ARC retains and autoreleases the receiver of -contents (NS_RETURNS_INNER_POINTER), and the game's thread has no
-       autorelease pool to drain it (wb_level_back): without this pool no stage buffer was ever freed (2.9 GB of GPU
+       autorelease pool to drain it (wb_tex_back): without this pool no stage buffer was ever freed (2.9 GB of GPU
        memory in 25 minutes). */
     const uint8_t *src; @autoreleasepool { src = (const uint8_t *)((__bridge id<MTLBuffer>)e->stage).contents; }
     size_t off = 0;
