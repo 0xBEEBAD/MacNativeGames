@@ -240,5 +240,5 @@ and nothing outside `games/ssbu` is read.
   (`com.apple.screensaver` idleTime of this host, 300 s when none is set): measured, the assertion while playing and
   "display may sleep again: no controller input for 180 s" afterwards.
 - **Played** on a MacBook Pro (Apple M1 Max, 64 GB, macOS 27.0.1) with the PowerA, on 13.0.2 and on 13.0.5: on 13.0.5
-  36 min at 2K, presentation p99 16.67 ms in 78 of 79 windows of 300 frames (one 25.00 ms), 175 of 128,700 frames
-  dropped (0.14 %), no abort.
+  44 min at 2K, no abort; the presentation windows the log holds (frames 105,300 to 158,100, the last 14.7 min) have
+  p99 16.67 ms in 175 of 177 windows of 300 frames (two at 25.00 ms) and 211 of 53,025 frames dropped (0.40 %).
