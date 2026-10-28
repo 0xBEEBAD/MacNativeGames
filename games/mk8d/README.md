@@ -8,7 +8,11 @@ The game's ARM64 code runs natively after an ahead-of-time rewrite; a host answe
 
 ## Status
 
-To be filled in from the validation runs.
+Checked on an M1 Max MacBook Pro, macOS 27.0.1, with scripted runs of the built app ([details](docs/validation.md)):
+
+- **Works:** boot to the title with its music, "Select a Mii" and the six default Miis, the menus with their movie previews, a full 50cc Grand Prix race at Mario Kart Stadium to the results, saves written and read again. 60 fps in the race (18,873 of 18,900 frames on screen), about 2.7 GB of memory.
+- **Not available:** Mii heads draw nothing (no MiiModel firmware data; bodies and colours show). Online Play shows "Connecting…" and returns to the menu, Wireless Play finds nothing: both are cut on purpose. The Booster Course Pass needs its purchased add-on content, which this target does not take.
+- **Not yet checked:** game controllers, the other cups, battle mode, multiplayer on one screen, long sessions. The scripted runs press buttons through `DM_KEYS`; play by hand is recorded in the [validation record](docs/validation.md#played-by-hand).
 
 ## Build
 
