@@ -242,17 +242,20 @@ static void apply_frame_env(const totk_frame_env *e, int overwrite) {
 }
 
 #if !TARGET_OS_VISION
-/* The picture and the frame rate, from the rows the Settings app and the start screen (start_screen.m) write; applied
-   just before the game thread starts. The start screen may have changed them after didFinishLaunching handed the pane
-   over, so they go again with overwrite=1. The mapping is settings_map.c's, which the pane's own presets use too. */
+/* The presets' picture and frame rate, from the rows the Settings app and the start screen (start_screen.m) write;
+   applied once, just before the game thread starts, so the start screen's pick counts (after PR #433: applying them in
+   didFinishLaunching as well left a 1080 drawable behind when the start screen then turned Full HD off). The picture keys
+   keep a devicectl value (overwrite=0), as before the pane had layers. The custom layer was handed over in apply_settings
+   and the start screen does not write its rows, so it is left as it is. The mapping is settings_map.c's. */
 static void apply_display_settings(void) {
     NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+    if ([d boolForKey:@"TOTK_CUSTOM_PICTURE"]) return;
     totk_preset_env prenv;
     totk_preset_env_build([d boolForKey:@"TOTK_DOCKED"], &prenv);
-    if (prenv.drawable) setenv("TOTK_IOS_DRAWABLE_H", prenv.drawable, 1);
-    setenv("TOTK_MFX_OUTPUT", prenv.output_upscale, 1);
+    if (prenv.drawable) setenv("TOTK_IOS_DRAWABLE_H", prenv.drawable, 0);
+    if (prenv.scene) setenv("TOTK_RENDER_RES", prenv.scene, 0);
+    setenv("TOTK_MFX_OUTPUT", prenv.output_upscale, 0);
     apply_operation_mode(prenv.operation);
-    if (prenv.scene) setenv("TOTK_RENDER_RES", prenv.scene, 1);
     // Frame rate: Settings.bundle › TOTK_PHONE_FPS, or the 60 / 30 button of the touch controls, which saves it here too.
     NSString *fps = [d stringForKey:@"TOTK_PHONE_FPS"] ?: @"60";
     totk_frame_env fe;
@@ -358,14 +361,9 @@ static void apply_settings(void) {
         }
         layer = [NSString stringWithFormat:@"custom (%@, scene %s, %@ fps)", picture, getenv("TOTK_RENDER_RES") ?: "?", cap];
     } else {
-        /* The presets: the Full HD switch owns the drawable and the scene, the frame row owns the pacing. Overwrite 0
-           keeps a devicectl value for testing. */
-        totk_preset_env prenv;
-        totk_preset_env_build([d boolForKey:@"TOTK_DOCKED"], &prenv);
-        if (prenv.drawable) setenv("TOTK_IOS_DRAWABLE_H", prenv.drawable, 0);
-        if (prenv.scene) setenv("TOTK_RENDER_RES", prenv.scene, 0);
-        setenv("TOTK_MFX_OUTPUT", prenv.output_upscale, 0);
-        apply_operation_mode(prenv.operation);
+        /* The presets: the Full HD switch owns the drawable and the scene, the frame row owns the pacing. Their picture
+           is handed over by apply_display_settings when the game starts, after the start screen; here only the frame row
+           goes (overwrite 0) and is checked, and apply_display_settings sets it again. */
         /* The row's own default, so the pane stays the only place it is written (the literal only covers a pane that
            lost the row). */
         NSDictionary *fps_row = pref_row(root, @"TOTK_PHONE_FPS");

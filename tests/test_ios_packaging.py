@@ -105,8 +105,12 @@ class FullHD(unittest.TestCase):
         table = preset.group(0) if preset else ''
         for value in ('"docked"', '"1080"', '"1600x900"'):
             self.assertIn(value, table)
-        # The start screen's pick is handed over again, with overwrite=1, through the same table.
-        self.assertIn('if (prenv.drawable) setenv("TOTK_IOS_DRAWABLE_H", prenv.drawable, 1);', main)
+        # The presets' picture is handed over once, when the game starts (apply_display_settings, after the start
+        # screen's pick), and not while the custom layer is on (after PR #433).
+        body = re.search(r'static void apply_display_settings\(void\) \{.*?\n}', main, re.S).group(0)
+        self.assertIn('if ([d boolForKey:@"TOTK_CUSTOM_PICTURE"]) return;', body)
+        self.assertIn('if (prenv.drawable) setenv("TOTK_IOS_DRAWABLE_H", prenv.drawable, 0);', body)
+        self.assertEqual(main.count('totk_preset_env_build('), 1, 'the presets\' picture goes in one place')
         # Both games have the switch: Breath of the Wild's docked branch renders 1920x1080 too (ad35dfa), so no
         # game-specific exception is left in the helper. The only other operation-mode site is visionOS's default.
         self.assertNotIn('#ifndef GAME_BOTW', main)
