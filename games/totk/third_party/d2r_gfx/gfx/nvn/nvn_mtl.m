@@ -2767,26 +2767,44 @@ static int wb_target_lock(const tex_t *t) {
              (unsigned long long)t->serial, t->d.width, t->d.height, (void *)t->mem, (unsigned long long)t->L.size, (unsigned long long)gone);
     return 0;
 }
-static int wb_level_back(const tex_t *t, id<MTLTexture> mt, unsigned level, unsigned layer) {   // 1 written, 0 failed, WB_POOL_GONE
+/* Every level and layer of a texture is read back with one command buffer and one wait: one blit per level and layer
+   waited for the GPU each time, 24 round trips (about 3.7 ms on the game's thread) for the 64x64 cubemap with four
+   levels that Breath of the Wild reads back every 10 frames (1.6.0, Kakariko, 2026-10-28). */
+static int wb_tex_back(const tex_t *t, id<MTLTexture> mt, unsigned layers) {   // 1 written, 0 failed, WB_POOL_GONE
     int bw, bh, bpb = nvn_fmt_bpb(t->d.format, &bw, &bh);
-    uint32_t lw = MAX(t->d.width >> level, 1u), lh = MAX(t->d.height >> level, 1u);
-    size_t lp = (size_t)((lw + bw - 1) / bw) * bpb, lr = (lh + bh - 1) / bh;
+    size_t total = 0;
+    for (unsigned l = 0; l < t->d.levels; l++) {
+        uint32_t lw = MAX(t->d.width >> l, 1u), lh = MAX(t->d.height >> l, 1u);
+        total += (size_t)((lw + bw - 1) / bw) * bpb * ((lh + bh - 1) / bh) * layers;
+    }
     /* This runs on the game's thread (nvnMemoryPoolInvalidateMappedRange), which has no autorelease pool: without one the
        autoreleased command buffer kept its blit encoder and this read-back buffer for ever (one 16 KiB buffer and one
        blit context per written-back level: Breath of the Wild writes back about 130 a second, 3.7 GB of GPU memory in 30
        minutes; TOTK's AGXG16GFamilyBuffer / BlitContext pairs growing by the thousands per lap were the same). */
     @autoreleasepool {
-    id<MTLBuffer> buf = [g_dev newBufferWithLength:lp * lr options:MTLResourceStorageModeShared];
+    id<MTLBuffer> buf = total ? [g_dev newBufferWithLength:total options:MTLResourceStorageModeShared] : nil;
     if (!buf) return 0;
     id<MTLCommandBuffer> cb = q_cb(); id<MTLBlitCommandEncoder> b = enc_b_begin(cb);
-    [b copyFromTexture:mt sourceSlice:layer sourceLevel:level sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(lw, lh, 1)
-              toBuffer:buf destinationOffset:0 destinationBytesPerRow:lp destinationBytesPerImage:lp * lr];
+    size_t off = 0;
+    for (unsigned l = 0; l < t->d.levels; l++) for (unsigned y = 0; y < layers; y++) {
+        uint32_t lw = MAX(t->d.width >> l, 1u), lh = MAX(t->d.height >> l, 1u);
+        size_t lp = (size_t)((lw + bw - 1) / bw) * bpb, lr = (lh + bh - 1) / bh;
+        [b copyFromTexture:mt sourceSlice:y sourceLevel:l sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(lw, lh, 1)
+                  toBuffer:buf destinationOffset:off destinationBytesPerRow:lp destinationBytesPerImage:lp * lr];
+        off += lp * lr;
+    }
     enc_b_end(b); cb_commit(cb); cb_wait(cb);
+    if (totk_tl_on()) totk_tl(TL_WB_STEP, 3, t->serial);
     if (!wb_target_lock(t)) return WB_POOL_GONE;
-    int bad = nvn_swizzle(&t->d, level, layer, (const uint8_t *)buf.contents, lp, t->mem);
+    const uint8_t *src = (const uint8_t *)buf.contents; int bad = 0; off = 0;
+    for (unsigned l = 0; l < t->d.levels && !bad; l++) for (unsigned y = 0; y < layers && !bad; y++) {
+        uint32_t lw = MAX(t->d.width >> l, 1u), lh = MAX(t->d.height >> l, 1u);
+        size_t lp = (size_t)((lw + bw - 1) / bw) * bpb, lr = (lh + bh - 1) / bh;
+        bad = nvn_swizzle(&t->d, l, y, src + off, lp, t->mem); off += lp * lr;
+    }
     pthread_mutex_unlock(&g_mu);
     if (bad) return 0;
-    g_wb_bytes += lp * lr;
+    g_wb_bytes += total;
     }
     return 1;
 }
@@ -2880,7 +2898,13 @@ static void wb_write_list_body(wb_ent **list, int nl, int force);
    outside the submission's pool, and game threads never drain their implicit one: every write-back's command buffer
    and staging buffer stayed alive (about 1,700 IOAccelerator regions a minute in the world) until the GPU budget
    stopped the game after 20-40 minutes. */
-static void wb_write_list(wb_ent **list, int nl, int force) { if (nl) @autoreleasepool { wb_write_list_body(list, nl, force); } }
+static void wb_write_list(wb_ent **list, int nl, int force) {
+    if (!nl) return;
+    int tl = totk_tl_on(), blit = 0;
+    if (tl) { totk_tl(TL_WB_IN, (uint64_t)nl, 0); for (int i = 0; i < nl; i++) blit |= !BOTW_WB_IS_STAGED(list[i]); }
+    @autoreleasepool { wb_write_list_body(list, nl, force); }
+    if (tl) totk_tl(TL_WB_OUT, (uint64_t)nl, (uint64_t)blit);
+}
 static void wb_write_list_body(wb_ent **list, int nl, int force) {
     if (!force) { BOTW_LATE_FILTER(list, nl) } if (!nl) return;   // Breath of the Wild: renderings that land on completion are not waited for
     { extern void nvn_x_drain(void) __attribute__((weak)); if (nvn_x_drain) nvn_x_drain(); }   // translation thread: nothing queued overtakes this read-back (as for ReadTexels)
@@ -2929,7 +2953,7 @@ static void wb_write_list_body(wb_ent **list, int nl, int force) {
         void *tok = nvn_dirty_tracked(t->mem, t->L.size) ? nvn_dirty_gpu_write_begin(t->mem, t->L.size) : NULL;
         if (!tok) dm_guest_write_prepare(t->mem, t->L.size);
         unsigned layers = t->L.layers ? t->L.layers : 1; int ok = 1; BOTW_WB_FROM_STAGE(e, ok, layers)
-        for (unsigned l = 0; l < t->d.levels && ok == 1; l++) for (unsigned y = 0; y < layers && ok == 1; y++) ok = wb_level_back(t, mt, l, y);
+        if (ok == 1 && layers) ok = wb_tex_back(t, mt, layers);   // layers 0: written back from the stage
         nvn_dirty_gpu_write_end(tok);
         if (ok == WB_POOL_GONE) { wb_ent_free(e); continue; }   // counted and logged by wb_target_lock
         if (ok) { BOTW_WB_LANDED(t) uint64_t d = ++g_wb_done; if (d <= 8 || d % 500 == 0) MLOG("[writeback] ser=%llu %ux%u nvnfmt=%#x lv%u：GPU 渲染结果写回内存（累计 %llu 张 / %llu MB，CPU 已改写而跳过 %llu 张）", (unsigned long long)t->serial, t->d.width, t->d.height, t->d.format, t->d.levels, (unsigned long long)d, (unsigned long long)(g_wb_bytes >> 20), (unsigned long long)g_wb_skip_cpu); }
@@ -17420,7 +17444,7 @@ int botw_wb_from_stage(void *ev) {
     wb_ent *e = ev; const tex_t *t = &e->t;
     if (!WB_STAGED(e)) return -1;
     /* ARC retains and autoreleases the receiver of -contents (NS_RETURNS_INNER_POINTER), and the game's thread has no
-       autorelease pool to drain it (wb_level_back): without this pool no stage buffer was ever freed (2.9 GB of GPU
+       autorelease pool to drain it (wb_tex_back): without this pool no stage buffer was ever freed (2.9 GB of GPU
        memory in 25 minutes). */
     const uint8_t *src; @autoreleasepool { src = (const uint8_t *)((__bridge id<MTLBuffer>)e->stage).contents; }
     size_t off = 0;
