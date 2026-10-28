@@ -83,6 +83,9 @@ int runtime_gamepad_type_set(int type){return type;}
 #endif
 #ifndef FRONTEND_REAL_GAMEPAD
 int runtime_mouse_set(int on){return on;}
+int runtime_mouse_sensitivity(void){return 50;}
+int runtime_mouse_sensitivity_locked(void){return 0;}
+void runtime_mouse_sensitivity_set(int sensitivity){(void)sensitivity;}
 #endif
 void nvn_fps_lock_set(int fps){(void)fps;}
 /* TOTK_STATE_REPORTING (gfx/nvn/totk_state_report.m): frontend.m declares them weak, the linker still wants them. */
