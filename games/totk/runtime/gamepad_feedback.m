@@ -1,6 +1,7 @@
-/* The Mac controller's haptics and motion sensors for the game's HD rumble and six-axis sensor (runtime/hid_feedback.c),
-   2026-10-17. On by default (TOTK_RUMBLE=0 / TOTK_GYRO=0, or rumble.txt / gyro.txt saying off, turn them off), and only on
-   macOS (iOS: stubs, never on).
+/* The controller's haptics and motion sensors for the game's HD rumble and six-axis sensor (runtime/hid_feedback.c),
+   2026-10-17. On by default (TOTK_RUMBLE=0 / TOTK_GYRO=0, or rumble.txt / gyro.txt saying off, turn them off), on macOS and
+   iOS. The raw HID fallback for a controller whose GameController motion stays all zeros needs IOKit, so it is macOS only;
+   the DualSense's trigger resistance reads the game's memory, so it is macOS only too.
    Rumble: each of the game's two vibration devices (left, right) is a Core Haptics engine on that handle of the
    controller (GCHapticsLocalityLeftHandle / RightHandle; a DualSense has both) playing a long continuous event. The
    game's value (two bands, each an amplitude 0..1 at a frequency) sets the event's intensity (TOTK_RUMBLE_GAIN, else
@@ -17,35 +18,25 @@
 #include <TargetConditionals.h>
 #include <math.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "runtime.h"
 #include "feedback_settings.h"
 
-#if !TARGET_OS_OSX
-int runtime_triggers_available(void) { return 0; }
-int runtime_triggers_locked(void) { return 1; }
-int runtime_triggers_choice(void) { return 0; }
-void runtime_triggers_choose(int on) { (void)on; }
-void runtime_triggers_release(void) {}
-void runtime_feedback_attach(GCController *c) { (void)c; }
-void runtime_feedback_detach(GCController *c) { (void)c; }
-void runtime_feedback_quiet(void) {}
-void runtime_rumble_set(unsigned side, float al, float fl, float ah, float fh) { (void)side; (void)al; (void)fl; (void)ah; (void)fh; }
-int runtime_rumble_gain_locked(void) { return 1; }
-float runtime_rumble_gain(void) { return 1; }
-void runtime_rumble_gain_set(float g) { (void)g; }
-#else
-#import <AppKit/AppKit.h>   /* NSApp.active: R2 resists only while the app is in front */
 #import <CoreHaptics/CoreHaptics.h>
+
 #include <mach/mach.h>
+#include <mach/mach_time.h>
+#if TARGET_OS_OSX
+#import <AppKit/AppKit.h>   /* NSApp.active: R2 resists only while the app is in front */
 #include <mach/mach_vm.h>
 #include "bow_state.h"
 #include "game_version.h"   /* Tears of the Kingdom 1.4.3's scene slot and actor name offsets, for the bow state */
-#include <mach/mach_time.h>
-#include "hid_imu.h"
 #import <IOKit/hid/IOHIDManager.h>
+#endif
+#include "hid_imu.h"
 
 /* ---- rumble ----
    Simple pattern players (CHHapticPatternPlayer) only: on macOS 26.5.2 (25F84) the advanced player (looping) never gets
@@ -54,7 +45,7 @@ void runtime_rumble_gain_set(float g) { (void)g; }
    -4810). Simple players and AHAP data play fine there (2026-10-17, DualSense, intensity 0). So each handle plays one
    30-second continuous event whose intensity and sharpness follow the game through dynamic parameters, and a fresh
    player takes over after 25 s. */
-enum { RUMBLE_TICK_MS = 10, RUMBLE_STALE_MS = 250, RUMBLE_HOLD_MS = 150, RUMBLE_EVENT_S = 30, RUMBLE_RENEW_MS = 25000 };
+enum { RUMBLE_TICK_MS = 10, RUMBLE_SLOW_MS = 1000, RUMBLE_STALE_MS = 250, RUMBLE_HOLD_MS = 150, RUMBLE_EVENT_S = 30, RUMBLE_RENEW_MS = 25000 };
 static dispatch_queue_t rumbleQueue;
 static dispatch_source_t rumbleTimer;
 static GCController *rumblePad;                     /* rumbleQueue */
@@ -69,6 +60,9 @@ static float want[2][4] = {{0, 160, 0, 320}, {0, 160, 0, 320}};
 static uint64_t wantAt[2], wantCount, wantCountLogged;
 static float strongest;
 static _Atomic float gain = 1.0f;   /* the rumble queue reads it; the settings panel sets it */
+/* Idle rumble ticks once a second instead of 100 times: a connected controller should not keep the CPU waking while
+   the game sends nothing. A new value switches back to 100 Hz. */
+static _Atomic int rumbleSlow;
 
 void runtime_rumble_set(unsigned side, float al, float fl, float ah, float fh) {
     if (side > 1) return;
@@ -76,6 +70,12 @@ void runtime_rumble_set(unsigned side, float al, float fl, float ah, float fh) {
     want[side][0] = al; want[side][1] = fl; want[side][2] = ah; want[side][3] = fh; wantAt[side] = runtime_now_ns(); wantCount++;
     float a = al > ah ? al : ah; if (a > strongest) strongest = a;
     pthread_mutex_unlock(&wantLock);
+    if (a > 0.02f && rumbleQueue && atomic_load_explicit(&rumbleSlow, memory_order_relaxed)) {
+        atomic_store_explicit(&rumbleSlow, 0, memory_order_relaxed);
+        dispatch_async(rumbleQueue, ^{
+            dispatch_source_set_timer(rumbleTimer, dispatch_time(DISPATCH_TIME_NOW, 0), RUMBLE_TICK_MS * NSEC_PER_MSEC, 2 * NSEC_PER_MSEC);
+        });
+    }
 }
 void runtime_feedback_quiet(void) {
     pthread_mutex_lock(&wantLock); wantAt[0] = wantAt[1] = 0; pthread_mutex_unlock(&wantLock);
@@ -139,9 +139,11 @@ static BOOL start_player(int side, float intensity, float sharpness, uint64_t no
     if (!playing[side]) { playing[side] = YES; playingSince[side] = now; }
     return YES;
 }
+/* The two HID rumble paths and the HID motion below are macOS only (IOKit); iOS gets the Core Haptics and GameController
+   paths above, as Apple's GameController API is the only controller HID access there. */
+#if TARGET_OS_OSX
 /* ---- rumble written straight to a Switch Pro Controller (2026-10-19) ----
-   The 8BitDo controller in Switch mode (057e:2009) gets GCDeviceHaptics with both handles, Core Haptics plays without an
-   error (a BOTW session: amplitude 0.20, "played left 0.5 s / right 0.5 s"), yet the controller never vibrates. So a
+   The 8BitDo controller in Switch mode (057e:2009) gets GCDeviceHaptics with both handles, Core Haptics plays without an   error (a BOTW session: amplitude 0.20, "played left 0.5 s / right 0.5 s"), yet the controller never vibrates. So a
    controller GameController files as a Switch Pro Controller gets the game's values as they are -- they already are
    Switch HD rumble, two bands per side -- in output report 0x10 on its HID device (shared with the motion below), after
    subcommand 0x48 turns vibration on, as SDL does. Encoding from SDL / dekuNukem's notes: frequency code
@@ -326,9 +328,15 @@ static void hid_rumble_detach(GCController *c) {   /* main queue */
         if (m) CFRelease(m);
     });
 }
+static BOOL hid_rumble_active(void) { return rumbleHid || hidRumbleDevice; }   /* a HID path, not Core Haptics */
+#else
+static void hid_rumble_attach(GCController *c) { (void)c; }
+static void hid_rumble_detach(GCController *c) { (void)c; }
+static BOOL hid_rumble_active(void) { return NO; }
+#endif
 static void rumble_tick(void) {   /* rumbleQueue, every 10 ms */
     uint64_t now = runtime_now_ns();
-    for (int side = 0; side < 2 && !rumbleHid; side++) {
+    for (int side = 0; side < 2 && !hid_rumble_active(); side++) {
         float v[4]; uint64_t at;
         pthread_mutex_lock(&wantLock); memcpy(v, want[side], sizeof v); at = wantAt[side]; pthread_mutex_unlock(&wantLock);
         float intensity = at && now - at < RUMBLE_STALE_MS * 1000000ull ? intensity_of(v) : 0, sharpness = sharpness_of(v);
@@ -347,14 +355,30 @@ static void rumble_tick(void) {   /* rumbleQueue, every 10 ms */
         if (!playing[side] || now - playerSince[side] > RUMBLE_RENEW_MS * 1000000ull) start_player(side, intensity, sharpness, now);
         else if (fabsf(intensity - sentIntensity[side]) > 0.01f || fabsf(sharpness - sentSharpness[side]) > 0.02f) send_params(players[side], side, intensity, sharpness);
     }
+#if TARGET_OS_OSX
     if (rumbleHid) rumble_tick_hid(now);           /* a Switch Pro Controller (PR #920) */
     if (hidRumbleDevice) hid_rumble_tick(now);     /* a HID pad from the profile table (PR #149) */
+#endif
+    BOOL busy = playing[0] || playing[1];
+    for (int side = 0; side < 2; side++) {
+        pthread_mutex_lock(&wantLock); uint64_t at = wantAt[side]; pthread_mutex_unlock(&wantLock);
+        if (at && now - at < RUMBLE_STALE_MS * 1000000ull) busy = YES;
+    }
+    int slow = atomic_load_explicit(&rumbleSlow, memory_order_relaxed);
+    if (busy && slow) {
+        atomic_store_explicit(&rumbleSlow, 0, memory_order_relaxed);
+        dispatch_source_set_timer(rumbleTimer, dispatch_time(DISPATCH_TIME_NOW, 0), RUMBLE_TICK_MS * NSEC_PER_MSEC, 2 * NSEC_PER_MSEC);
+    } else if (!busy && !slow) {
+        atomic_store_explicit(&rumbleSlow, 1, memory_order_relaxed);
+        dispatch_source_set_timer(rumbleTimer, dispatch_time(DISPATCH_TIME_NOW, RUMBLE_SLOW_MS * NSEC_PER_MSEC),
+                                  RUMBLE_SLOW_MS * NSEC_PER_MSEC, 100 * NSEC_PER_MSEC);
+    }
     static uint64_t lastLog; if (!lastLog) lastLog = now;
     if (now - lastLog >= 30000000000ull) {
         pthread_mutex_lock(&wantLock); uint64_t n = wantCount - wantCountLogged; float peak = strongest; wantCountLogged = wantCount; strongest = 0; pthread_mutex_unlock(&wantLock);
         for (int side = 0; side < 2; side++) if (playing[side]) { playedNs[side] += now - playingSince[side]; playingSince[side] = now; }
         if (n) fprintf(stderr, "[rumble] last 30 s: %llu values from the game, strongest amplitude %.2f, played left %.1f s / right %.1f s%s\n",
-                       (unsigned long long)n, peak, playedNs[0] / 1e9, playedNs[1] / 1e9, rumbleHid || hidRumbleDevice ? " (HID)" : rumblePad.haptics ? "" : " (no controller with haptics)");
+                       (unsigned long long)n, peak, playedNs[0] / 1e9, playedNs[1] / 1e9, hid_rumble_active() ? " (HID)" : rumblePad.haptics ? "" : " (no controller with haptics)");
         playedNs[0] = playedNs[1] = 0; lastLog = now;
     }
 }
@@ -419,7 +443,7 @@ static void motion_sample(GCMotion *m) {   /* the controller's handler queue */
     runtime_motion_feed(acc, gyro, runtime_now_ns());
 }
 
-/* ---- motion straight from a Switch Pro Controller's HID reports (2026-10-19) ----
+/* ---- motion straight from a Switch Pro Controller's HID reports (2026-10-19; macOS only) ----
    An 8BitDo controller in Switch mode (057e:2009 "Pro Controller" over Bluetooth) gets a GCMotion with hasRotationRate,
    and GameController delivers its samples (33 a second) -- but every one is exactly zero, moved or not, while the same
    controller's raw 0x30 reports carry live six-axis data (gyro up to 550 deg/s, about 1 G at rest) and its SPI factory
@@ -430,6 +454,7 @@ static void motion_sample(GCMotion *m) {   /* the controller's handler queue */
    calibration (the user calibration at 0x8026 when it has its 0xB2A1 magic, else the factory one at 0x6020), as SDL:
    G = raw * 4 / (sensitivity - origin), deg/s = (raw - origin) * 936 / (sensitivity - origin); until it arrives the
    sensor's nominal ranges, 8 G and 2000 deg/s over 32768. */
+#if TARGET_OS_OSX
 static IOHIDManagerRef hidManager;   /* main queue */
 static IOHIDDeviceRef hidDevice;     /* main queue: open while motion or rumble uses it */
 static BOOL hidMotion, hidRumble;    /* main queue: which of them does (motion: a Switch pad's IMU, or hid_imu_start's pad) */
@@ -596,7 +621,20 @@ static void hid_rumble_stop(void) {   /* main queue */
     });
     hid_close_unused();
 }
+#else
+static void hid_motion_start(void) {
+    static int logged;
+    if (!logged) { logged = 1; fprintf(stderr, "[gyro] GameController reports no motion for this controller; the raw HID fallback is macOS only\n"); }
+}
+static void hid_motion_stop(void) {}
+#endif
 
+/* The trigger resistance follows the bow, which is read from the game's memory: macOS only (iOS: stubs, never on). */
+#if TARGET_OS_OSX
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+#include "bow_state.h"
+#include "game_version.h"   /* Tears of the Kingdom 1.4.3's scene slot and actor name offsets, for the bow state */
 /* ---- DualSense adaptive triggers ----
    R2 (ZR: draw the bow) resists like a bowstring, more the further it is pressed, but only while Link is drawing the
    bow; at any other time both triggers are slack, and L2 never resists. The game sends a controller nothing for this, so
@@ -795,8 +833,16 @@ void runtime_triggers_choose(int on) {
     }
     triggers_pick(nil);
 }
+#else
+int runtime_triggers_available(void) { return 0; }
+int runtime_triggers_locked(void) { return 1; }
+int runtime_triggers_choice(void) { return 0; }
+void runtime_triggers_choose(int on) { (void)on; }
+void runtime_triggers_release(void) {}
+#endif
 
 /* ---- motion from the input reports of a pad GameController gives none (2026-10-23): runtime/hid_imu.h ---- */
+#if TARGET_OS_OSX
 static uint64_t imuLast;   /* main run loop: the time of the last sample */
 static void hid_imu_report(void *ctx, IOReturn result, void *sender, IOHIDReportType type, uint32_t id, uint8_t *p, CFIndex len, uint64_t stamp) {   /* main run loop */
     (void)ctx; (void)sender; (void)type;
@@ -845,17 +891,29 @@ static BOOL hid_imu_start(GCController *c) {   /* main queue: c has no GCMotion 
     fprintf(stderr, "[gyro] %s: no motion from GameController; reading the six-axis sensor from its HID reports (%04x:%04x)\n", name, vendor, product);
     return YES;
 }
+#else
+static BOOL hid_imu_start(GCController *c) {   /* the raw HID fallback is macOS only (IOKit) */
+    (void)c;
+    return NO;
+}
+#endif
 
 /* ---- controllers ---- */
 void runtime_feedback_attach(GCController *c) {   /* main queue */
     const char *name = (c.vendorName ?: @"controller").UTF8String;
     if (runtime_rumble_enabled()) {
         rumble_start();
+        BOOL tookHid = NO;
+#if TARGET_OS_OSX
         hid_rumble_stop();
         const char *viaHid = getenv("TOTK_RUMBLE_HID");
-        if ([c.productCategory isEqualToString:@"Switch Pro Controller"] && !(viaHid && !strcmp(viaHid, "0")) && hid_rumble_start(c))
+        tookHid = [c.productCategory isEqualToString:@"Switch Pro Controller"] && !(viaHid && !strcmp(viaHid, "0")) && hid_rumble_start(c);
+        if (tookHid)
             dispatch_async(rumbleQueue, ^{ for (int s = 0; s < 2; s++) { if (players[s]) [players[s] stopAtTime:CHHapticTimeImmediate error:nil]; forget_side(s); } rumblePad = nil; });
-        else if (c.haptics) {
+#endif
+        if (tookHid) {
+            /* nothing further: hid_rumble_start writes the game's rumble to the pad itself */
+        } else if (c.haptics) {
             dispatch_async(rumbleQueue, ^{ for (int s = 0; s < 2; s++) { if (players[s]) [players[s] stopAtTime:CHHapticTimeImmediate error:nil]; forget_side(s); retryAt[s] = 0; } rumblePad = c; });
             NSMutableArray *where = [NSMutableArray array]; for (NSString *l in c.haptics.supportedLocalities) [where addObject:l];
             fprintf(stderr, "[rumble] %s: haptics (%s)\n", name, [where componentsJoinedByString:@", "].UTF8String);
@@ -864,7 +922,9 @@ void runtime_feedback_attach(GCController *c) {   /* main queue */
             hid_rumble_attach(c);
         }
     }
+#if TARGET_OS_OSX
     triggers_apply(c, name);
+#endif
     if (runtime_gyro_enabled()) {
         static dispatch_once_t once;
         dispatch_once(&once, ^{
@@ -880,6 +940,12 @@ void runtime_feedback_attach(GCController *c) {   /* main queue */
             } else if (!hid_imu_start(c)) fprintf(stderr, "[gyro] %s has no gyro: no motion from it\n", name);   /* PR #309: IMU in its HID reports (8BitDo Ultimate 2) */
             return;
         }
+        if (motionPad && motionPad != c) {   /* one motion feed only: two controllers would be mixed into one fusion */
+            motionPad.motion.valueChangedHandler = nil;
+            /* A controller that needed manual activation keeps its sensors powered until told otherwise. */
+            if (motionPad.motion.sensorsRequireManualActivation) motionPad.motion.sensorsActive = NO;
+            runtime_motion_live(0);
+        }
         if (m.sensorsRequireManualActivation) m.sensorsActive = YES;
         hid_motion_stop(); zeroSince = 0; motionSeen = hidAsked = NO; runtime_motion_deadzone_default(0);
         m.valueChangedHandler = ^(GCMotion *changed) { motion_sample(changed); };
@@ -891,10 +957,19 @@ void runtime_feedback_detach(GCController *c) {   /* main queue */
     hid_rumble_detach(c);
     if (runtime_rumble_enabled() && rumbleQueue)
         dispatch_async(rumbleQueue, ^{ if (rumblePad == c) { for (int s = 0; s < 2; s++) forget_side(s); rumblePad = nil; } });
+#if TARGET_OS_OSX
     if (triggerPad && c.extendedGamepad == triggerPad) { triggers_off(); triggers_pick(c); }   /* e.g. USB unplugged, Bluetooth still on */
     if (hidRumblePad == c) hid_rumble_stop();
+#endif
     if (motionPad == c) {
         c.motion.valueChangedHandler = nil; hid_motion_stop(); motionPad = nil; runtime_motion_live(0);
     }
 }
-#endif
+/* iOS deactivates a manual-activation controller's sensors while the app is in the background (Settings, Control
+   Center); without this, gyro aiming stays dead until the controller reconnects. */
+void runtime_feedback_active(void) {   /* main queue */
+    if (motionPad && motionPad.motion.sensorsRequireManualActivation) {
+        motionPad.motion.sensorsActive = YES;
+        fprintf(stderr, "[gyro] motion sensors reactivated after the app returned\n");
+    }
+}
