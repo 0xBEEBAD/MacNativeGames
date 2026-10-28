@@ -5,6 +5,7 @@
 #if TARGET_OS_OSX
 #import <IOKit/hid/IOHIDManager.h>
 #include <IOKit/hid/IOHIDUsageTables.h>
+#import <IOKit/pwr_mgt/IOPMLib.h>
 #endif
 #include <math.h>
 #include <pthread.h>
@@ -479,6 +480,40 @@ void runtime_mouse_release(void) {   /* main thread: the window let the pointer 
     if (mouseButtons) { mouseButtons = 0; refresh_gamepads(); }
 }
 
+#if TARGET_OS_OSX
+/* macOS counts the keyboard and the mouse as the user's activity, not a game controller: a player using only the
+   controller got the screen saver in the middle of a fight (Q128, 28.10.; pmset listed no display-sleep assertion from
+   the game). While the controller's state keeps changing, the game holds a PreventUserIdleDisplaySleep assertion; five
+   minutes without a change release it, so a Mac left alone still sleeps. A stick resting in its dead zone reads 0 and
+   changes nothing. */
+enum { AWAKE_IDLE_S = 300, AWAKE_CHECK_S = 30 };
+static _Atomic uint64_t awakeLastInput;   /* ns */
+static _Atomic int awakeWanted;           /* set by the first input, cleared when the assertion is let go */
+static IOPMAssertionID awakeAssertion;    /* main queue */
+static int awakeHeld;                     /* main queue */
+static void awake_check(void) {
+    if (runtime_now_ns() - atomic_load(&awakeLastInput) < (uint64_t)AWAKE_IDLE_S * 1000000000ull) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)AWAKE_CHECK_S * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ awake_check(); });
+        return;
+    }
+    if (awakeHeld) { IOPMAssertionRelease(awakeAssertion); awakeHeld = 0; }
+    atomic_store(&awakeWanted, 0);
+    fprintf(stderr, "[totk-input] display may sleep again: no controller input for %d s\n", AWAKE_IDLE_S);
+}
+static void awake_take(void) {
+    IOReturn r = IOPMAssertionCreateWithName(kIOPMAssertPreventUserIdleDisplaySleep, kIOPMAssertionLevelOn,
+                                             CFSTR("Super Smash Bros. Ultimate: controller in use"), &awakeAssertion);
+    awakeHeld = r == kIOReturnSuccess;
+    if (awakeHeld) fprintf(stderr, "[totk-input] display kept awake while the controller is in use\n");
+    else fprintf(stderr, "[totk-input] display-sleep assertion failed: 0x%08x\n", r);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)AWAKE_CHECK_S * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ awake_check(); });
+}
+static void awake_note_input(void) {   /* any thread */
+    atomic_store(&awakeLastInput, runtime_now_ns());
+    if (!atomic_exchange(&awakeWanted, 1)) dispatch_async(dispatch_get_main_queue(), ^{ awake_take(); });
+}
+#endif
+
 static void refresh_gamepads(void) {
     RuntimeGamepadState next = {0};
     uint64_t physical = (uint64_t)mouseButtons << CONTROLLER_MOUSE_FIRST;
@@ -535,8 +570,15 @@ static void refresh_gamepads(void) {
     next.buttons |= controller_map_apply(controllerMap, held) | synthetic;
     pthread_mutex_lock(&gamepadLock);
     pressedEdges |= next.buttons & ~gamepadState.buttons;
+    int changed = next.buttons != gamepadState.buttons || next.lx != gamepadState.lx || next.ly != gamepadState.ly ||
+                  next.rx != gamepadState.rx || next.ry != gamepadState.ry;
     gamepadState = next;
     pthread_mutex_unlock(&gamepadLock);
+#if TARGET_OS_OSX
+    if (changed && next.connected) awake_note_input();
+#else
+    (void)changed;
+#endif
 }
 
 static void attach_gamepad(GCController *controller) {
