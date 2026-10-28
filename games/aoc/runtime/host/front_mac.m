@@ -23,6 +23,8 @@ int dm_low_power_now(void) { return NSProcessInfo.processInfo.lowPowerModeEnable
 #include "pad_slots.h"
 #include "haptics_apple.h"
 #import "front_settings.h"
+#include "front_shortcuts.h"
+#include "../gfx/nvn/aoc_timing.h"
 #include "mac_display_settings.h"
 #include <signal.h>
 #include <math.h>
@@ -126,6 +128,8 @@ static _Atomic int g_face_layout = DM_FACE_AUTO, g_swap_ab;
 static int g_start_fullscreen, g_output_preset, g_show_hints = 1;
 static DmSettingsPanel *g_settings_panel;
 static DmShortcutHUD *g_shortcut_hud;
+static DmPerformanceHUD *g_performance_hud;
+static int g_stats_mode=2, g_frame_graph=1;
 static void settings_changed(DmMacSetting setting, NSInteger value);
 static void settings_refresh(void);
 static NSString *g_pad_settings_path;
@@ -140,8 +144,8 @@ static NSString *pad_settings_path(void) {
 static void pad_settings_save(void) {
     if (!g_pad_settings_path) return;
     static const char *layout[] = {"auto", "position", "label"};
-    NSString *text = [NSString stringWithFormat:@"layout=%s\nswap_ab=%d\nfullscreen=%d\noutput=%d\nhints=%d\n",
-                                                layout[g_face_layout], !!g_swap_ab, !!g_start_fullscreen, g_output_preset, !!g_show_hints];
+    NSString *text = [NSString stringWithFormat:@"layout=%s\nswap_ab=%d\nfullscreen=%d\noutput=%d\nhints=%d\nfps_target=%d\ndynamic_fps=%d\nstats=%d\nframe_graph=%d\n",
+                                                layout[g_face_layout], !!g_swap_ab, !!g_start_fullscreen, g_output_preset, !!g_show_hints, aoc_timing_target(), aoc_timing_dynamic(), g_stats_mode, g_frame_graph];
     NSError *error = nil;
     if (![text writeToFile:g_pad_settings_path atomically:YES encoding:NSUTF8StringEncoding error:&error])
         LOG("front end: could not save controller settings to %s: %s", g_pad_settings_path.fileSystemRepresentation,
@@ -154,6 +158,7 @@ static void pad_settings_load(void) {
     g_swap_ab = 0;
     g_start_fullscreen = 0; g_output_preset = 0; g_show_hints = 1;
     const char *e;
+    int fps=aoc_timing_target(), dynamic=aoc_timing_dynamic();
     NSString *text = g_pad_settings_path ? [NSString stringWithContentsOfFile:g_pad_settings_path encoding:NSUTF8StringEncoding error:nil] : nil;
     for (NSString *raw in [text componentsSeparatedByString:@"\n"]) {
         NSString *line = [raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -168,7 +173,15 @@ static void pad_settings_load(void) {
         else if ([key isEqualToString:@"fullscreen"]) g_start_fullscreen = value.intValue != 0;
         else if ([key isEqualToString:@"output"]) { NSInteger n = value.integerValue; if (n >= 0 && n < 5) g_output_preset = (int)n; }
         else if ([key isEqualToString:@"hints"]) g_show_hints = value.intValue != 0;
+        else if ([key isEqualToString:@"fps_target"]) { int n=value.intValue; if(aoc_timing_valid(n)) fps=n; }
+        else if ([key isEqualToString:@"dynamic_fps"]) dynamic=value.intValue!=0;
+        else if ([key isEqualToString:@"stats"]) { int n=value.intValue; if(n>=0 && n<=2) g_stats_mode=n; }
+        else if ([key isEqualToString:@"frame_graph"]) g_frame_graph=value.intValue!=0;
     }
+    // Explicit diagnostics override saved preferences, including invalid-value fallback.
+    if(getenv("DM_FPS_TARGET")) fps=aoc_timing_target();
+    if(getenv("DM_DYNAMIC_FPS")) dynamic=aoc_timing_dynamic();
+    aoc_timing_set(fps,dynamic);
     e = getenv("DM_PAD_LAYOUT");
     if (e && !strcmp(e, "auto")) g_face_layout = DM_FACE_AUTO;
     else if (e && !strcmp(e, "position")) g_face_layout = DM_FACE_POSITION;
@@ -361,16 +374,23 @@ static DmMacSettings settings_snapshot(void) {
     NSUInteger connected = 0; for (GCController *pad in GCController.controllers) if (pad.extendedGamepad) connected++;
     return (DmMacSettings){.face_layout = g_face_layout, .swap_ab = g_swap_ab, .start_fullscreen = g_start_fullscreen,
         .output_preset = g_output_preset, .show_hints = g_show_hints, .fullscreen = (g_win.styleMask & NSWindowStyleMaskFullScreen) != 0,
+        .fps_target=aoc_timing_target(), .dynamic_fps=aoc_timing_dynamic(), .stats_mode=g_stats_mode,
+        .frame_graph=g_frame_graph, .screen_fps=front_screen_max_fps(),
+        .performance=aoc_stats_snapshot(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)),
         .output_width = (NSUInteger)size.width, .output_height = (NSUInteger)size.height, .controllers = connected};
 }
 static void settings_refresh(void) {
     pad_apply_settings();
     for (int i = 0; i < 5; i++) g_output_items[i].state = g_output_preset == i;
     g_hints_item.state = g_show_hints;
-    [g_settings_panel refresh]; [g_shortcut_hud refresh];
+    [g_settings_panel refresh]; [g_shortcut_hud refresh]; [g_performance_hud refresh];
 }
 static void settings_changed(DmMacSetting setting, NSInteger value) {
     switch (setting) {
+        case DmSettingFpsTarget: aoc_timing_set((int)value,aoc_timing_dynamic()); break;
+        case DmSettingDynamicFps: aoc_timing_set(aoc_timing_target(),value!=0); break;
+        case DmSettingStats: if(value>=0 && value<=2) g_stats_mode=(int)value; break;
+        case DmSettingFrameGraph: g_frame_graph=value!=0; break;
         case DmSettingFaceLayout: if (value >= 0 && value < 3) g_face_layout = (int)value; break;
         case DmSettingSwapAB: g_swap_ab = value != 0; break;
         case DmSettingStartFullscreen: g_start_fullscreen = value != 0; break;
@@ -433,6 +453,8 @@ void front_run(void (*guest)(void)) {
             openSettings:^{ [g_settings_panel showPanel]; }];
         g_shortcut_hud.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin;
         [v addSubview:g_shortcut_hud]; [g_shortcut_hud refresh];
+        g_performance_hud=[[DmPerformanceHUD alloc] initWithSnapshot:^{ return settings_snapshot(); }];
+        [v addSubview:g_performance_hud]; [g_performance_hud refresh];
         // Main menu: AppKit runs ⌘ shortcuts only through menu items, so ⌘Q quits and ⌃⌘F toggles fullscreen from here (AppKit shows the item as Globe-F and keeps ⌃⌘F as a hidden twin)
         NSMenu *bar = [NSMenu new], *app = [NSMenu new], *wm = [[NSMenu alloc] initWithTitle:@"Window"];
         [[bar addItemWithTitle:@"" action:nil keyEquivalent:@""] setSubmenu:app];
@@ -457,12 +479,12 @@ void front_run(void (*guest)(void)) {
             if (e.window != win) return e;   // Only swallow keys for the game window; other windows such as the software keyboard input box receive typing as usual
             if (e.type == NSEventTypeKeyDown && (e.modifierFlags & NSEventModifierFlagCommand)) return e;   // ⌘ shortcuts go to the menu; a key released while ⌘ is held still reaches the game, or it would stay pressed
             if (!(e.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) &&
-                (e.keyCode == 122 || e.keyCode == 18 || e.keyCode == 20 || e.keyCode == 22)) {
+                dm_mac_is_shortcut(e.keyCode)) {
                 if (e.type == NSEventTypeKeyDown && !e.isARepeat) {
-                    if (e.keyCode == 122) [g_settings_panel showPanel];
-                    else if (e.keyCode == 18) settings_changed(DmSettingHints, !g_show_hints);
-                    else if (e.keyCode == 20) settings_changed(DmSettingOutput, (g_output_preset + 1) % 5);
-                    else settings_changed(DmSettingFaceLayout, (g_face_layout + 1) % 3);
+                    DmMacSetting setting; NSInteger value;
+                    DmShortcutAction action=dm_mac_shortcut(e.keyCode,settings_snapshot(),&setting,&value);
+                    if(action==DmShortcutSettings) [g_settings_panel showPanel];
+                    else if(action==DmShortcutChange) settings_changed(setting,value);
                 }
                 return nil;
             }

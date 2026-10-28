@@ -48,9 +48,41 @@ under `~/Library/Application Support/Hyrule Warriors Age of Calamity/`.
 
 ## Controls and diagnostics
 
-Keyboard defaults are WASD for movement, J/K/U/I for A/B/X/Y, and Return for +.
-F1 or Command-comma opens settings. Supported physical controllers use
-GameController.
+Keyboard gameplay mappings:
+
+| Key | Controller input |
+|---|---|
+| WASD | Left stick / movement |
+| Arrow keys | D-pad |
+| J / K / U / I | A / B / X / Y |
+| Q / E | L / R |
+| Z / C | ZL / ZR |
+| F / G | Left / right stick click |
+| Return / Tab | Plus / Minus |
+| Space | Shake |
+| Left mouse click/drag | Touch screen |
+
+The keyboard has no right-stick/camera-direction binding. Supported physical
+controllers use GameController.
+
+With the game window focused, these shortcuts apply immediately and save their
+settings. Auto-repeat does not repeatedly toggle a setting.
+
+| Key | Action |
+|---|---|
+| F1 or Command-comma | Open settings |
+| 1 | Show/hide shortcut hints |
+| 2 | Cycle FPS target: Original 30 → 60 → 120 → Original 30 |
+| 3 | Cycle output cap: Auto → 720p → 1080p → 1440p → 2160p |
+| 4 | Toggle dynamic timing (inactive in Original mode) |
+| 5 | Cycle stats: Off → FPS only → Full |
+| 6 | Cycle physical-controller layout: Auto → Position → Nintendo labels |
+| 7 | Toggle frame-time graph (visible when stats are enabled) |
+| Control-Command-F | Toggle full screen |
+| Command-Q | Quit |
+
+The small shortcuts pane shows the current FPS target, dynamic mode, stats mode
+and graph state alongside the existing output and controller controls.
 
 For bounded diagnostics, `scripts/run_aoc.py --work-dir WORK --session NAME
 --seconds 60 --window --audio` creates a disposable save and freezes the
@@ -64,14 +96,37 @@ The runner freezes the binary, rewritten modules and generated profile tables.
 For package validation, `DM_AOC_PROFILE=/existing/absolute/disposable-directory`
 selects separate writable state; paths inside the signed app are rejected.
 
-The default preserves the game's original 30 fps simulation. The inherited 60
-fps mode has not passed timing acceptance and is not offered. A sound-heap
-compatibility patch moves 4 MiB between subheaps without changing their total;
+Settings (F1 or Command-comma) now offer **Original 30**, **30**, **60** and
+**120 fps** targets. Original 30 remains the default. The other targets support
+**Dynamic step**, which scales the task clock from elapsed scheduler time and
+measures the scene/battle clock independently. The event clock follows the scene
+cadence, so a 120 Hz task cannot impose an 8.3 ms battle step when rendering
+falls behind. Gaps above
+100 ms are capped during loading or focus changes. Higher targets are
+experimental; achieved rendering/display rates depend on the scene and screen.
+
+The independent stats pane offers Off, FPS only and Full stats, plus a frame-time
+graph. It reports game presents and actual display FPS separately, frame/GPU
+milliseconds, p50/p95/p99 over the last 240 frames, resident shader libraries,
+shader inventory, render/compute pipelines, synchronous load/build costs,
+imported prewarm objects and load/render-pipeline errors. Prewarm imports are
+not a count of shaders actually drawn. Headless runs have no display FPS.
+Shortcut hints remain independently configurable.
+
+For diagnostics, add `--fps 60` or `--fps 120` to `run_aoc.py`; `--fixed-step`
+disables dynamic stepping. `control.txt` also accepts `fps 0|30|60|120` and
+`dynamicfps on|off` for live changes. Direct launches support `DM_FPS_TARGET`
+and `DM_DYNAMIC_FPS=0|1`. Selecting a target in settings saves it for later
+windowed launches. Rebuild the rewritten modules and host together: the loader
+rejects the previous timing ABI.
+
+A sound-heap compatibility patch moves 4 MiB between subheaps without changing their total;
 its underlying hardware/work-buffer discrepancy remains unresolved.
 
 ## Tests
 
 ```sh
+# Optional instruction-level timing checks: pip install unicorn
 make -C games/aoc test PYTHON=/path/to/aoc-python/bin/python
 make -C games/aoc test-gpu PYTHON=/path/to/aoc-python/bin/python WORK=/path/to/private-probes
 ```

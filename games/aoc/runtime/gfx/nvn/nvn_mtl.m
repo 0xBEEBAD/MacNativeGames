@@ -15,6 +15,8 @@
 #include <os/proc.h>   // os_proc_available_memory: for the memory readout line
 #endif
 #include "nvn_mtl.h"
+#include "aoc_stats.h"
+#include "aoc_timing.h"
 #include "nvn_obj.h"
 #include "../tex/nvn_fmt_mtl.h"
 #include "../tex/nvn_deswizzle.h"
@@ -2872,6 +2874,7 @@ static void shmap_load(void) {
 // Warm-up entry: built in the background, waiting to be taken by the submit thread. vs / fs are strong references (in pso they are only raw pointers, and the background dictionary is released when the task ends)
 @interface WarmItem : NSObject { @public int kind; NSString *key, *vs_key, *fs_key; NvShader *shader, *vs, *fs; pso_key pso; id<MTLFunction> fsfn; id object; } @end
 @implementation WarmItem @end
+static _Atomic uint64_t g_aoc_load_errors;
 static NSMutableDictionary<NSString *, NvShader *> *g_shcache;
 
 static void c1_store(NvShader *o) {
@@ -3003,6 +3006,7 @@ void mtl_set_depth_zero(int on) {
     if (n) MLOG("[RED] depth mode changed after %d vertex shaders were loaded: they keep the old convention", n);
 }
 // layer: a vertex shader's layer entry points (entry_layer / entry_layer_z, which also write the layer) instead of main0 / main0_z, for a program whose geometry shader is a slice writer (prog_fold_gs)
+static NvShader *shader_failed(void) { atomic_fetch_add(&g_aoc_load_errors,1); return nil; }
 static NvShader *shader_load(NSString *pc, int stage, int layer) {
     NSError *e = nil;
     NSData *jd = [NSData dataWithContentsOfFile:[NSString stringWithFormat:@"%@/%@.json", g_msl_dir, pc]];
@@ -3012,19 +3016,19 @@ static NvShader *shader_load(NSString *pc, int stage, int layer) {
         o->gs_loc = [j[@"gs_slice"][@"loc"] intValue]; o->gs_comp = [[j[@"gs_slice"][@"comp"] description] UTF8String][0];
         return o;
     }
-    if (stage == 2 && !j) return nil;   // missing geometry translation: the caller's red line says so
+    if (stage == 2 && !j) return shader_failed();   // missing geometry translation: the caller's red line says so
     NSString *lp = [NSString stringWithFormat:@"%@/%@.metallib", g_msl_dir, pc];
     id<MTLLibrary> lib = lib_from_file(lp, &e);
-    if (!lib || !j) { MLOG("[RED] failed to load shader %s: %s", pc.UTF8String, e ? e.localizedDescription.UTF8String : "no reflection json"); return nil; }
-    if (![j[@"chain"] isEqual:@DMSH_CHAIN]) { MLOG("[RED] shader %s has translation chain version %s, but this host expects %s", pc.UTF8String, [[j[@"chain"] description] UTF8String], DMSH_CHAIN); return nil; }
-    if (layer && !j[@"entry_layer"]) { MLOG("[RED] vertex shader %s has no layer entry points", pc.UTF8String); return nil; }
+    if (!lib || !j) { MLOG("[RED] failed to load shader %s: %s", pc.UTF8String, e ? e.localizedDescription.UTF8String : "no reflection json"); return shader_failed(); }
+    if (![j[@"chain"] isEqual:@DMSH_CHAIN]) { MLOG("[RED] shader %s has translation chain version %s, but this host expects %s", pc.UTF8String, [[j[@"chain"] description] UTF8String], DMSH_CHAIN); return shader_failed(); }
+    if (layer && !j[@"entry_layer"]) { MLOG("[RED] vertex shader %s has no layer entry points", pc.UTF8String); return shader_failed(); }
     NvShader *o = [NvShader new]; o->gs_loc = o->lay_loc = -1;
     if (stage == 0 && [j[@"layer_from"] isKindOfClass:[NSDictionary class]]) { o->lay_loc = [j[@"layer_from"][@"loc"] intValue]; o->lay_comp = [[j[@"layer_from"][@"comp"] description] UTF8String][0]; }
     char err[160];
-    if (nvn_refl_from_json(j, &o->rf, err, sizeof err)) { MLOG("[RED] shader %s reflection conversion failed: %s", pc.UTF8String, err); return nil; }
+    if (nvn_refl_from_json(j, &o->rf, err, sizeof err)) { MLOG("[RED] shader %s reflection conversion failed: %s", pc.UTF8String, err); return shader_failed(); }
     if (o->rf.dyn && !DM_GAME_TEX_DYN_SLOTS) {   // dynamic texture handles (TEXD / SAMPD) only where the profile says the game picks them from c2's tables, as before otherwise
         // (rf.c1 is freed by dealloc when o goes: freeing it here too was a double free, which aborted FINAL FANTASY RESONANCE at its first such shader)
-        MLOG("[RED] shader %s reflection conversion failed: a texture handle the translator could not trace to one slot (profile key tex_dyn_slots off)", pc.UTF8String); return nil; }
+        MLOG("[RED] shader %s reflection conversion failed: a texture handle the translator could not trace to one slot (profile key tex_dyn_slots off)", pc.UTF8String); return shader_failed(); }
     if (rt_range_on()) o->range_ro=rt_range_bindings_ro(j);
     NSString *entry = j[@"entry"];
     if (stage == 0) {
@@ -7466,8 +7470,7 @@ static const char *cctx_snap(void) {
 }
 // When the game itself asks for 30 fps (pacing by the game's present interval, interval 2, hle_nvn.c) the display link runs at 30 Hz too: games whose logic counts frames, such as Engage, are not pulled up to 60 fps by the display link on iOS
 __attribute__((weak)) int nvn_game_fps(void) { return 60; }   // hle_nvn.c provides the strong definition
-int mtl_fps_target(void) { static int env = -2; if (env == -2) { const char *e = getenv("DM_FPS"); env = e ? atoi(e) : -1; if (env != 30 && env != 60) env = -1; else MLOG("DM_FPS=%d: frame rate pinned by the test switch", env); }
-    return env > 0 ? env : nvn_game_fps() == 30 ? 30 : 60; }
+int mtl_fps_target(void) { return nvn_game_fps(); }
 // Hand a submission to the GPU in segments (DM_NVN_CUT=draw count, 0 = off; default 64): when the game holds back the next frame's submit until this frame's GPU work is done (The Legend of Zelda: Breath of the Wild: the main thread's nvnSyncWait on the fence of the frame just submitted),
 // the GPU sits idle for the milliseconds the host spends translating inside the submit (in the shrine each frame is GPU 13 ms + translation 7 ms back to back). Each time this many draws have accumulated, the command buffer encoded so far is committed between two passes: the GPU runs the earlier passes while the CPU translates the later ones.
 // Cut only when no encoder is open and no pass is deferred / merged / hoisted; commit this batch's uploads first (later draws use them). The fence signal and completion work stay on the last segment only: the queue executes in commit order and every encoder starts with a queue barrier
@@ -8291,6 +8294,7 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
     uint64_t pn = ticket;   // Record the present time by the game's present sequence number (ticket number): hle's present statistics are taken by "the game's nth present"; in the display link path the actual present count != the game's present count (old frames get merged and dropped)
     [dr addPresentedHandler:^(id<MTLDrawable> d) {   // Actual presentation time (the time this frame is really put on screen, CACurrentMediaTime base)
         CFTimeInterval tt = d.presentedTime;
+        aoc_stats_display(tt, clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
         g_pres[pn % PRING] = (pres_ent){pn, tt > 0 ? tt : -1};
     }];
     // Each frame is displayed for at least one present period: when the GPU completion time jitters around a 120 Hz refresh boundary, the paired "25 ms + 8.33 ms" stutter no longer appears
@@ -8368,7 +8372,7 @@ __attribute__((weak)) uint64_t dm_focus_in_since(void) { return 0; }
     int submitted;
     ext_wait(it.ev_val);
     @autoreleasepool { submitted = present_now(&it.t, it.period, it.frame, ticket, it.crop, update.drawable, update.targetPresentationTimestamp); }
-    g_link_hold_until = submitted && it.period > 0.025 ? update.targetPresentationTimestamp + it.period : 0;
+    g_link_hold_until = submitted && it.period > 0 ? update.targetPresentationTimestamp + it.period : 0;
     if (!submitted) {
         pthread_mutex_lock(&g_pq_mu);
         if (ticket > g_pq_done) g_pq_done = ticket;
@@ -8419,7 +8423,7 @@ static void *link_main(void *arg) {   // Display link thread: started when switc
 static void link_sync(void) {   // Called every frame by the game's present thread: aligns the display link object's state to g_dm_present_link and the power-saving mode (can change at run time)
     static int applied; int want = g_dm_present_link;
     if (want < 0 || want > 2) { g_dm_present_link = applied == 3 ? 1 : applied; return; }
-    if (want && mtl_fps_target() == 30) want = 3;   // Power-saving mode: display link at 30 Hz
+    if (want) want = mtl_fps_target() == 30 ? 3 : mtl_fps_target() >= 120 ? 2 : 1;   // Power-saving mode: display link at 30 Hz
     if (want) front_screen_match(want == 3 ? 30 : want == 2 ? 120 : 60);
     // The screen's rate changed (switched by front_screen_match, or another screen): the range again, virtual ticks or none. Taken only once the link object exists, so a change
     // while its thread starts (after link_main read the rate) is not lost
@@ -8489,7 +8493,17 @@ void mtl_link_pause(int on);
 // (hle_nvn.c nvnWindowAcquireTexture -> mtl_present_wait). Without clearing, the game cannot advance a single tick during those 2.5 seconds of waiting for the save, and the save is not written (the same pattern three times in player logs: 3 frames queued, 0 submits)
 void mtl_present_discard(int on) { atomic_store(&g_present_discard, on != 0); if (on) present_drop_for_suspend(); }
 static uint64_t present_enqueue(const tex_t *t, double period, const int crop[4], uint64_t ev_val);
-uint64_t mtl_present(const tex_t *t, double period, const int crop[4]) { return present_enqueue(t, period, crop, 0); }
+uint64_t mtl_present(const tex_t *t, double period, const int crop[4]) {
+    aoc_stats_resources((AocShaderStats){
+        .inventory=g_shmap.count, .libraries=g_shcache.count,
+        .render_pipelines=g_pso.n, .compute_pipelines=g_cps.n,
+        .library_loads=g_bp_lib_n, .pipeline_builds=g_bp_pso_n,
+        .library_ms=g_bp_lib_ns/1e6, .pipeline_ms=g_bp_pso_ns/1e6,
+        .load_errors=atomic_load(&g_aoc_load_errors), .pipeline_errors=g_pso_fail.n,
+        .warm_libraries=g_warm_claim_shaders, .warm_render=g_warm_claim_rps,
+        .warm_compute=g_warm_claim_cps, .warming=atomic_load(&g_warm_running)});
+    return present_enqueue(t, period, crop, 0);
+}
 void *mtl_device(void) { mtl_init(); return (__bridge void *)g_dev; }
 void *mtl_device_classic(void) { g_classic_ok = 1; return mtl_device(); }   // the GL and Vulkan layers: a device without Metal 4 is taken too, with presents dropped (mtl_init)
 // An external producer's texture (the Vulkan layer's swapchain images): a serial the present path resolves (serial_put), resident for the Metal 4 queue, never collected by the cross-submit ledger
@@ -8575,7 +8589,7 @@ int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns) {
     // A frame presented with interval N blocks the game for N vsyncs on the Switch, as the display callback holds it N ticks: games that scale their time step by the interval (BotW's VFR: interval / 2)
     // ran at double speed while they produced interval-2 frames every 60 Hz tick (iPhone log: Link sprinting with B, the interval flapping 1 ↔ 2)
     if (vsyncs < 1) vsyncs = 1;
-    const uint64_t step = g_link_mode == 3 ? (uint64_t)(vsyncs + 1) / 2 : (uint64_t)vsyncs * (g_link_mode == 2 ? 2 : 1);
+    const uint64_t step = aoc_timing_target() ? 1 : g_link_mode == 3 ? (uint64_t)(vsyncs + 1) / 2 : (uint64_t)vsyncs * (g_link_mode == 2 ? 2 : 1);
     pthread_mutex_lock(&g_link_mu);
     if (g_link_tick_n >= started_tick + step) { started_tick = g_link_tick_n; pthread_mutex_unlock(&g_link_mu); return 1; }
     struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);

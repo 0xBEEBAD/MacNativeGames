@@ -14,7 +14,8 @@
 #include "nvn_tex.h"
 #include "nvn_mtl.h"
 #include "nvn_pace.h"
-#include "nvn_fstep.h"
+#include "aoc_timing.h"
+#include "aoc_stats.h"
 #include "../../host/front.h"
 #include "nvn_dirty.h"
 #include <mach/mach_time.h>
@@ -1244,22 +1245,19 @@ void mtl_barrier_stats(uint64_t *skip, uint64_t *full);
 extern uint32_t mtl_present_qos(void);
 static uint64_t g_frame;
 static uint64_t g_acq_wait_ns, g_pq_wait_ns;   // Accumulated display-link wait / wait for the present queue to return inside acquire, recorded per frame at present (there can be several acquires within one frame)
-static uint64_t g_fs_start, g_fs_wait;   // frame step (fstep_tick): when the first acquire after a present returned (the frame's start, 0 = none yet), and its pacing wait
 uint64_t dm_nvn_frame_count(void) { return g_frame; }
 extern uint64_t g_t0_ns;   // Host process start point (main.c; same base as the UIMSG timestamps)
 NVN(nvnWindowAcquireTexture, NVNwindowAcquireTextureResult, NVNwindow *w, NVNsync *s, int *idx) {
     win_t *o = (win_t *)w;
     *idx = o->ntex ? o->next++ % o->ntex : 0;
     // Vsync blocks here (real-device NVN: when all textures in the swapchain are waiting for display, wait for the next one to be released), not in present -- the game often calls present while holding a lock
-    uint64_t at = *idx < 4 ? o->avail[*idx] : 0, now = dm_detclock_enabled() ? guest_ns() : now_ns(), wait = at > now ? at - now : 0, pace_ns = 0;
+    uint64_t at = *idx < 4 ? o->avail[*idx] : 0, now = dm_detclock_enabled() ? guest_ns() : now_ns(), wait = at > now ? at - now : 0;
     if (!dm_detclock_enabled()) {   // Register the acquire thread as a time-constraint thread (no longer registered only when it "arrived early": it must also declare itself when it is constantly behind in the hot state)
         static uint64_t rt_period; uint64_t period = present_period(o), rtp = rt_period_ns(o, period);
         if (rtp && rt_period != rtp) { rt_period = rtp; set_time_constraint(rtp); }
         rt_comp_tick(rtp);
-        uint64_t p0 = now_ns();
         if (mtl_link_active()) { if (!mtl_link_wait_tick(present_itv(o), period ? 2 * period : 33333333ull) && wait) sleep_until_ns(at); }   // DM_PRESENT_LINK: pacing fully follows the display link (wait for the present interval's display-link ticks when running fast, go immediately when behind); our own 60 Hz clock is only the fallback when no display-link tick arrives
         else if (wait) sleep_until_ns(at);
-        pace_ns = now_ns() - p0;
     } else {   // DM_DETCLOCK_PACE=1 (used by the screenshot gate): while the guest clock advances per frame, each frame's wall clock is no shorter than one step -- frame count and in-game time are deterministic, and the background loading thread has at least one step of wall clock available per frame;
                // When the machine is fully loaded frames only get slower and the background only gets more wall clock, so the picture captured at "the Nth frame after the message" is independent of load
         static int pace = -1; static uint64_t step, last;
@@ -1271,7 +1269,6 @@ NVN(nvnWindowAcquireTexture, NVNwindowAcquireTextureResult, NVNwindow *w, NVNsyn
     uint64_t tk = *idx < 4 ? o->ticket[*idx] : 0;
     if (tk) { uint64_t w0 = now_ns(); mtl_present_wait(tk); g_pq_wait_ns += now_ns() - w0; }
     if (s) { ((sync_t *)s)->fenced = 1; ((sync_t *)s)->fence = mtl_last_fence(); }   // The swapchain texture becomes available once the commits before this point have completed
-    if (!g_fs_start) { g_fs_start = now_ns(); g_fs_wait = pace_ns; }   // the frame starts when the first acquire after a present returns: on a display-link tick when on time
     return NVN_WINDOW_ACQUIRE_TEXTURE_RESULT_SUCCESS;
 }
 // The older API (NVN 53, Super Mario 3D World + Bowser's Fury): the queue waits for the texture on the GPU and no sync object is handed out. The host replays in submission order, so later commands already come after earlier presents; the same as WindowAcquireTexture without a sync object
@@ -1318,12 +1315,12 @@ static void dump_frame(void) {
 static double g_tw[6][TWIN]; static unsigned g_tn[6];
 static double g_pres_iv[TWIN]; static unsigned g_presn;   // Present interval (ms; -1 = dropped by the system, 0 = no reading)
 static double g_pres_exp[TWIN], g_pres_exp_last;   // how long that frame should have stayed on screen (ms, pres_expect_ms); the last one for slow_emit
-// The hold (60 Hz vsyncs) each present was given, by present number. On-screen intervals are read 8 presents late, so each is judged against the holds of its own presents:
+// The requested hold in milliseconds for each present, by present number. On-screen intervals are read 8 presents late, so each is judged against the holds of its own presents:
 // with the frame step at 2 vsyncs every frame stays 33.3 ms, which is not a dropped frame
-static uint8_t g_hold_ring[16];
+static double g_hold_ring[16];
 static double pres_expect_ms(uint64_t n) {   // the interval between presents n - 1 and n shows frame n - 1: the display link holds it for its own present's hold, the Mac pacer spaces present n by n's, so the larger of the two
-    int k = g_hold_ring[n % 16] > g_hold_ring[(n - 1) % 16] ? g_hold_ring[n % 16] : g_hold_ring[(n - 1) % 16];
-    double held = (k ? k : 1) * 1000.0 / 60, tgt = 1000.0 / mtl_fps_target();   // at least one frame period of the target (33.3 ms when the game itself asks for 30)
+    double k = g_hold_ring[n % 16] > g_hold_ring[(n - 1) % 16] ? g_hold_ring[n % 16] : g_hold_ring[(n - 1) % 16];
+    double held = k > 0 ? k : 1000.0 / mtl_fps_target(), tgt = 1000.0 / mtl_fps_target();   // at least one frame period of the target (33.3 ms when the game itself asks for 30)
     return held > tgt ? held : tgt;
 }
 __attribute__((weak)) double dm_brightness_now(void) { return -1; }
@@ -1507,21 +1504,14 @@ static _Atomic uint64_t g_itv2_since;   // start of the game's current run of in
 // The frame rate the game itself asks for: 30 in game mode when the present interval has been >= 2 for a full second (the display link follows at 30 Hz, mtl_fps_target), otherwise 60; back to 60 at once when the interval returns to 1. Intervals of 3 or more (20 fps or less) have no matching display-link mode and run at 30.
 // The one-second hold: Mario 1.2.1 picks the interval from the previous frame's time (main+0xcfd24), setting 2 for the frame after a slow one and then 1 again (123 times in two minutes on an iPhone). Following that frame by frame would flap the display-link mode;
 //   a single interval-2 frame is instead kept on screen for its own period by the display-link callback, and the next acquire waits as many ticks (mtl_link_wait_tick, nvn_mtl.m), without changing the mode
-// Frame step (patch_nso.py FRAME_STEP: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0): the game no longer picks an interval. The host hands it each frame's step in whole vsyncs
-// (fstep_tick, nvn_fstep.h) and presents follow the hold k it decides with it
-__attribute__((weak)) uint8_t *dm_fps_state;   // loader.c; graphics unit tests have no loader
-__attribute__((weak)) void dm_fps_lock_tick(void) {}   // hle_fpslock.c: engine frame limits in game memory (Monster Hunter Rise); graphics unit tests have no host
-static int fps_step_cap(void) {
-    if (!dm_fps_state) return 0;
-    uint32_t b = __atomic_load_n((uint32_t *)dm_fps_state, __ATOMIC_RELAXED); float t; memcpy(&t, &b, sizeof t);
-    return t <= 0 ? 0 : __atomic_load_n((uint32_t *)(dm_fps_state + 4), __ATOMIC_RELAXED) || t <= 30 ? 30 : 60;
+// AoC's task scheduler owns simulation time; presents only choose a display cadence.
+__attribute__((weak)) uint8_t *dm_fps_state;
+__attribute__((weak)) void dm_fps_lock_tick(void) {}
+int nvn_game_fps(void) {
+    int target=aoc_timing_target(); if(target) return target;
+    uint64_t since=atomic_load(&g_itv2_since);
+    return g_hz>0 && !g_display_mode && since && now_ns()-since>=1000000000ull ? 30 : 60;
 }
-static int fstep_on(void) { return fps_step_cap() != 0; }   // the host decides the steps in whole vsyncs
-static nvn_fstep g_fs;   // present thread only
-static nvn_fgpu g_fg;   // the GPU time at kmin and at the current hold (nvn_fstep_gpu_slowed)
-static _Atomic int g_fs_k;   // the hold presentation follows (0 = not decided yet)
-// The display link runs at 30 Hz at a 30 cap, except while the game fixes its own step at 1 (BotW's VFR override)
-int nvn_game_fps(void) { int c = fps_step_cap(); if (c) return c == 30 && atomic_load(&g_fs_k) == 1 && fstep_on() ? 60 : c; uint64_t s = atomic_load(&g_itv2_since); return g_hz > 0 && !g_display_mode && s && now_ns() - s >= 1000000000ull ? 30 : 60; }
 static void present_cfg(const win_t *o) {
     if (g_hz >= 0) return;
     // The interval mode comes from the game profile (present_interval, default game): whether frames follow the present interval the game sets depends on whether the game's logic counts frames, which differs per game. Environment variables override it, and can override the fixed 60 Hz.
@@ -1536,9 +1526,12 @@ static void present_cfg(const win_t *o) {
     LOG("[nvn] present tick %d Hz, interval mode %s (%s; present interval set by the game %d; %s)", g_hz, g_display_mode ? "display (one frame per tick, a cut)" : "game (original semantics)",
         m ? "DM_PRESENT_INTERVAL" : "game profile present_interval", o->interval, scr > 0 ? "window, fixed 60 Hz" : "no window, fixed 60 Hz");
 }
-static int present_itv(const win_t *o) { int c = fps_step_cap(), k = atomic_load(&g_fs_k); return c ? (k && fstep_on() ? k : 60 / c) : g_display_mode ? 1 : o->interval > 0 ? o->interval : 1; }   // vsyncs per frame that presentation follows
+static int present_itv(const win_t *o) { return aoc_timing_target() ? 1 : g_display_mode ? 1 : o->interval > 0 ? o->interval : 1; }
+
 static uint64_t present_period(const win_t *o) {
     present_cfg(o);
+    int aoc = aoc_timing_target();
+    if (aoc) return 1000000000ull / (uint64_t)aoc;
     int was = atomic_load(&g_game_itv), want = o->interval > 0 ? o->interval : 1;
     if (want != was) {
         atomic_store(&g_game_itv, want);
@@ -1548,92 +1541,13 @@ static uint64_t present_period(const win_t *o) {
     int itv = present_itv(o), hz = g_hz;
     return hz > 0 ? (uint64_t)itv * 1000000000ull / (uint64_t)hz : 0;
 }
-// The period the acquire thread declares to the scheduler (set_time_constraint): the present period, except that a hold the frame step raised for late frames keeps the cap's deadline.
-// Declaring the longer hold let the performance controller move the game to the efficiency cores at half the clock (TOTK on an iPhone: 3.4 → 1.5 GHz and 65% → 5% on performance
-// cores within 10 frames of a step to 30), where 60 fps no longer fits and every trial back to it fails. A step the game fixes itself (BotW's VFR override) is declared as it is
-static uint64_t rt_period_ns(const win_t *o, uint64_t period) {
-    int c = fps_step_cap();
-    if (!period || !c || !fstep_on() || __atomic_load_n((uint32_t *)(dm_fps_state + 0x24), __ATOMIC_RELAXED)) return period;
-    int kmin = 60 / c;
-    return present_itv(o) > kmin ? (uint64_t)kmin * 1000000000ull / (uint64_t)g_hz : period;
-}
-// Whether the CPU runs below its speed for reasons other than heat (nvn_fstep_next's slow, which allows probes): under 30% of the process's CPU time on performance cores in
-// each of the last two windows of 30 presents, on a system with two core types, at thermal state nominal or fair, Low Power Mode off. A game that waits out a long hold is parked
-// on the efficiency cores (TOTK on an iPhone: 6% on performance cores at 1.6 GHz, thermal 0), where the cost the frame step measures never fits k − 1 again; one window alone
-// dips that low on a Mac at 30 fps now and then (26% once in 70 s, 97% around it)
-static int g_fs_pshare = -1;   // the last window's share in percent (−1 = not measured yet)
-static int fstep_cpu_slowed(uint64_t presents) {
-    static int levels = -1, slowed, low_was; static uint64_t pc, pp;
-    if (levels < 0) { size_t n = sizeof levels; if (sysctlbyname("hw.nperflevels", &levels, &n, 0, 0)) levels = 1; }
-    if (levels < 2 || presents % 30) return levels >= 2 && slowed;
-    task_power_info_v2_data_t pw; mach_msg_type_number_t n = TASK_POWER_INFO_V2_COUNT;
-    if (task_info(mach_task_self(), TASK_POWER_INFO_V2, (task_info_t)&pw, &n) != KERN_SUCCESS) return slowed;
-    uint64_t c = pw.cpu_energy.total_user + pw.cpu_energy.total_system, p = pw.task_ptime;   // both in mach time units, as in power_line
-    if (pc && c > pc) g_fs_pshare = (int)(100 * (p - pp) / (c - pc));
-    pc = c; pp = p;
-    int low = g_fs_pshare >= 0 && g_fs_pshare < 30;
-    slowed = low && low_was && dm_thermal_now() <= 1 && !dm_low_power_now(); low_was = low;
-    return slowed;
-}
-// Whether late frames may raise the hold above the cap's vsyncs (profile fps_hold, DM_FPS_HOLD=on / off). Off for a game whose updates do not wait for the presents and step
-// by the cap whatever the hold (Age of Calamity): holding frames there only paces the screen, and an iPhone lowers the GPU clock to the longer hold, so frames got slower and
-// the hold never came back (battle GPU 10 → 41 ms at the same draws, 20 fps at thermal state 0); off, each frame is shown as soon as it is ready
-static int fstep_hold(void) {
-    static int h = -1;
-    if (h < 0) {
-        const char *e = getenv("DM_FPS_HOLD"); h = e ? strcmp(e, "off") != 0 : DM_GAME_FPS_HOLD;
-        if (!h) LOG("[nvn] frame step: frames are not held longer than the cap's vsyncs (%s)", e ? "DM_FPS_HOLD" : "game profile fps_hold");
-    }
-    return h;
-}
-// Once per present, before this frame's period is taken: the time since the previous frame's start (shown) and the frame's cost decide this frame's hold and the next frame's step.
-// Cost = max(CPU: the time between the frames' starts without the pacing wait, GPU: the latest finished frame's GPU time), in vsyncs
-static void fstep_tick(const win_t *o) {
-    static uint64_t prev, t0, v0, fixed_sum, held[FSTEP_MAX + 1]; static int nlog;
-    const double v = 1e9 / 60;
-    uint64_t st = g_fs_start ? g_fs_start : now_ns(), pw = g_fs_wait; g_fs_start = g_fs_wait = 0;
-    double shown = prev ? (st - prev) / v : 0, gpu = 0; prev = st;
-    for (uint64_t f = g_frame; f-- > 0 && g_frame - f <= 8;) { double g = mtl_gpu_ms(f); if (g >= 0) { gpu = g * 1e6 / v; break; } }
-    double cpu = shown - pw / v, cost = cpu > gpu ? cpu : gpu;
-    int c = fps_step_cap(), kmin = 60 / c, kmax = !fstep_hold() ? kmin : kmin >= 2 ? 2 : FSTEP_MAX, k0 = g_fs.k, kmin0 = g_fs.kmin, probe0 = g_fs.probe;
-    int fixed = (int)__atomic_load_n((uint32_t *)(dm_fps_state + 0x24), __ATOMIC_RELAXED);
-    uint64_t probes0 = g_fs.probes, failed0 = g_fs.failed;
-    // A screen whose rate is not a multiple of 60 (144, 165 Hz) shows the link's 1/60 s ticks on their nearest refreshes (nvn_mtl.m link_range), so a frame on time can show for one
-    // refresh more than its hold: a cheap 50 ms frame shows 54.5 ms at 165 Hz, which counted as late kept the hold at 20 fps for good
-    int hz = front_screen_max_fps(); g_fs.shown_slack = hz > 60 && hz % 60 && mtl_link_active() ? 60.0 / hz : 0;
-    int cslow = fstep_cpu_slowed(o->presents), gslow = nvn_fstep_gpu_slowed(&g_fg, gpu, k0 ? k0 : kmin, kmin, probe0) && dm_thermal_now() <= 1 && !dm_low_power_now();   // same gates as the CPU's
-    int n = nvn_fstep_next(&g_fs, shown, cost, kmin, kmax, fixed, cslow || gslow);
-    __atomic_store_n((uint32_t *)(dm_fps_state + 0x20), (uint32_t)n, __ATOMIC_RELAXED); atomic_store(&g_fs_k, g_fs.k);
-    held[g_fs.k]++; if (fixed) fixed_sum += (uint64_t)n;   // the stubs count only the host's steps
-    static int fixed_was, nfix;
-    if (fixed != fixed_was && nfix < 40) { nfix++; if (fixed) LOG("[nvn] frame step: the game fixes its own step at %d vsyncs at present %llu", fixed, (unsigned long long)o->presents); else LOG("[nvn] frame step: the game hands the step back to the host at present %llu", (unsigned long long)o->presents); }
-    fixed_was = fixed;
-    if (k0 && g_fs.k != k0 && nlog < 40) {
-        char why[160], held[48] = ""; int w = snprintf(why, sizeof why, "probe");
-        if (cslow) w += snprintf(why + w, sizeof why - w, ", CPU %d%% on performance cores", g_fs_pshare);
-        if (gslow) w += snprintf(why + w, sizeof why - w, ", GPU %.2f× its time at hold %d", g_fg.cur / g_fg.ref, kmin);
-        if (nvn_fstep_same(&g_fs)) snprintf(why + w, sizeof why - w, ", cost %.2f× the cost that held hold %d", g_fs.ccur / g_fs.cref, kmin);
-        if (g_fs.k > k0 && g_fs.cref > 0) snprintf(held, sizeof held, "; hold %d held at %.2f", kmin, g_fs.cref);   // what a probe compares the longer hold's cost with
-        LOG("[nvn] frame step: hold %d → %d vsyncs at present %llu (%s; cost %.2f vsyncs, GPU %.2f%s)%s", k0, g_fs.k, (unsigned long long)o->presents,
-            fixed ? "the game's own step" : kmin0 > FSTEP_MAX ? "the game's own step ended" : kmin != kmin0 ? "the cap changed" : g_fs.k > k0 ? "3 late frames" : g_fs.probes != probes0 ? why : "trial", cost, gpu, held, ++nlog == 40 ? "; further changes only counted below" : "");
-    }
-    if (probe0 == 1 && g_fs.probe != 1 && !fixed && nlog < 40)   // whether the controller raised the clock for the shorter deadline
-        LOG("[nvn] frame step: the probe %s at present %llu (CPU %d%% on performance cores)%s", g_fs.probe == 2 ? "held" : "failed", (unsigned long long)o->presents, g_fs_pshare, ++nlog == 40 ? "; further changes only counted below" : "");
-    else if (probe0 == 2 && !g_fs.probe && g_fs.failed != failed0 && nlog < 40)
-        LOG("[nvn] frame step: the run at hold %d after the probe lasted under %.0f s, counted as a failed probe (CPU %d%% on performance cores)%s", kmin, FSTEP_HOLD_MAX / 60, g_fs_pshare, ++nlog == 40 ? "; further changes only counted below" : "");
-    if (o->presents % 1800 == 0) {   // game time against real time (1.000 = normal speed; lower when a device cannot hold 20 fps or after long stalls)
-        uint64_t vs = __atomic_load_n((uint64_t *)(dm_fps_state + 0x30), __ATOMIC_RELAXED) + fixed_sum, t = now_ns();
-        if (t0) LOG("[nvn] frame step: game time %.2f s in %.2f s (%.3f of real time); held 1 / 2 / 3 vsyncs %llu / %llu / %llu frames, %llu late, %llu vsyncs paid back, %.0f dropped, %llu up / %llu down (%llu probes, %llu failed trials)",
-                    (vs - v0) / 60.0, (t - t0) / 1e9, (vs - v0) / 60.0 / ((t - t0) / 1e9), (unsigned long long)held[1], (unsigned long long)held[2], (unsigned long long)held[3],
-                    (unsigned long long)g_fs.late, (unsigned long long)g_fs.paid, g_fs.dropped, (unsigned long long)g_fs.ups, (unsigned long long)g_fs.downs, (unsigned long long)g_fs.probes, (unsigned long long)g_fs.failed);
-        t0 = t; v0 = vs; memset(held, 0, sizeof held);
-    }
-}
+static uint64_t rt_period_ns(const win_t *o, uint64_t period) { (void)o; return period; }
 NVN(nvnQueuePresentTexture, void, NVNqueue *q, NVNwindow *w, int idx) {
     (void)q; win_t *o = (win_t *)w; o->presents++;
     dm_fps_lock_tick();
-    if (dm_fps_state) { static int was; int c = fps_step_cap(); if (c != was) { LOG("[nvn] frame step cap %d → %d fps at present %llu%s", was, c, (unsigned long long)o->presents, c == 30 && was == 60 ? " (prerendered movie)" : ""); was = c; } }
-    if (fstep_on()) fstep_tick(o);
+    static int previous_target=-1;
+    int target=aoc_timing_target();
+    if(target!=previous_target) { LOG("[aoc-timing] target %d fps, dynamic %d",target?target:30,aoc_timing_dynamic()); previous_target=target; }
     static uint64_t prev_in, prev_out, prev_pass, prev_draw;
     present_cfg(o);
     {
@@ -1677,7 +1591,11 @@ NVN(nvnQueuePresentTexture, void, NVNqueue *q, NVNwindow *w, int idx) {
     if (prev_in) {
         double fr = (t0 - prev_in) / 1e6, wk = (t0 - prev_out) / 1e6, nv = atomic_exchange(&g_nvn_ns, 0) / 1e6;
         tpush(0, fr); tpush(1, wk); tpush(2, nv);
-        trow(f, "@frame_ms", fr); trow(f, "@work_ms", wk); trow(f, "@nvn_ms", nv); trow(f, "@itv", (double)present_itv(o));
+        trow(f, "@frame_ms", fr); trow(f, "@work_ms", wk); trow(f, "@nvn_ms", nv); trow(f, "@itv", aoc_timing_target() ? 60.0 / aoc_timing_target() : (double)present_itv(o));
+        double task_seconds; uint64_t task_updates; aoc_timing_clock(&task_seconds,&task_updates);
+        trow(f,"@task_seconds",task_seconds); trow(f,"@task_updates",(double)task_updates);
+        double scene_seconds; uint64_t scene_updates; aoc_timing_scene_clock(&scene_seconds,&scene_updates);
+        trow(f,"@scene_seconds",scene_seconds); trow(f,"@scene_updates",(double)scene_updates); trow(f,"@target_fps",target?target:30);
         // Slow-frame attribution (taken only when DM_NVN_TSV is on): this frame's present-thread CPU time (−1 if the thread changed), CPU of all threads in the process, acquire wait accumulated per frame, present call time (same base as the GPU / on-screen present times: ms since process start)
         trow(f, "@wait_ms", g_acq_wait_ns / 1e6); trow(f, "@pq_wait_ms", g_pq_wait_ns / 1e6);
         if (frame_rec()) {
@@ -1732,13 +1650,26 @@ NVN(nvnQueuePresentTexture, void, NVNqueue *q, NVNwindow *w, int idx) {
               // Visibility: during the time a long frame "comes out late", what stays on screen is the previous frame; if the previous frame was a loading screen (or this frame itself is one), all the player sees is the loading screen staying a bit longer, with no motion interrupted
               dm_longframe_note(b); } }
         uint64_t g0, g1; if (frame_rec() && mtl_gpu_span(f - 8, &g0, &g1)) { trow(f - 8, "@gpu_beg_ms", (g0 - g_t0_ns) / 1e6); trow(f - 8, "@gpu_end_ms", (g1 - g_t0_ns) / 1e6); } }
+    double hud_gpu = -1;
+    for (uint64_t back=1; back<=8 && back<=f; back++) { hud_gpu=mtl_gpu_ms(f-back); if (hud_gpu>=0) break; }
+    if (f % 300 == 0) {
+        static double previous_seconds; static uint64_t previous_ns;
+        double seconds; uint64_t updates; aoc_timing_clock(&seconds,&updates);
+        if(previous_ns) LOG("[aoc-timing] task clock %.3f s / wall %.3f s; %llu updates total",seconds-previous_seconds,(t0-previous_ns)/1e9,(unsigned long long)updates);
+        static double previous_scene;
+        double scene_seconds; uint64_t scene_updates; aoc_timing_scene_clock(&scene_seconds,&scene_updates);
+        if(previous_ns) LOG("[aoc-timing] scene clock %.3f s / wall %.3f s; %llu scene updates total",scene_seconds-previous_scene,(t0-previous_ns)/1e9,(unsigned long long)scene_updates);
+        previous_scene=scene_seconds;
+        previous_ns=t0; previous_seconds=seconds;
+    }
+    aoc_stats_frame(t0, hud_gpu, aoc_timing_target() ? aoc_timing_target() : 30);
     prev_in = t0; prev_pass = ps; prev_draw = dr;
     dump_frame();
     if (g_frame % TWIN == 0) tsummary(g_frame);
     mtl_set_frame(g_frame);
     // Real-device semantics: present only enqueues and returns immediately; this frame's display time is scheduled by the pacer, and the texture can be acquired again only at "display time + one period" (blocking in AcquireTexture)
     uint64_t period = present_period(o), now = dm_detclock_enabled() ? guest_ns() : now_ns();
-    g_hold_ring[o->presents % 16] = (uint8_t)present_itv(o);
+    g_hold_ring[o->presents % 16] = period / 1e6;
     nvn_pacer pc = {o->pace};
     uint64_t slot = now + nvn_pace(&pc, now, period);
     o->pace = pc.target;

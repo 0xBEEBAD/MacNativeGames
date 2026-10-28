@@ -36,3 +36,11 @@ no CPU backend or Horizon service implementation. LibHac remains an optional,
 SHA-256-pinned local prerequisite for the inherited container importer only.
 
 See [../THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) for transitive licenses.
+
+AoC dynamic-FPS/stats work (2026-10-27): the compact HUD, independent overlay
+controls and timing history follow the local TOTK frontend's UI pattern, with
+AoC-specific AppKit views and telemetry. No TOTK game addresses or timing patches
+were imported. AoC 1.3.0's four timing sites assert the original instructions;
+its KIDS scheduler and scene/battle use independently measured intervals. The
+scene counter uses native CNTFRQ_EL0, independently checked against Mach time
+(the M5 exposes different native-counter and mach_absolute_time ABI rates).

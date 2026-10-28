@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--seconds',type=float,default=60)
     parser.add_argument('--shader-cache',type=Path,help='explicit diagnostic cache; default full offline build')
     parser.add_argument('--host-from',type=Path,help='explicit prior host snapshot for a recorded regression run')
+    parser.add_argument('--fps',type=int,choices=(0,30,60,120),help='AoC simulation/presentation target; 0 keeps original timing')
+    parser.add_argument('--fixed-step',action='store_true',help='diagnostic: use 1/target instead of measured dynamic step')
     parser.add_argument('--window',action='store_true')
     parser.add_argument('--audio',action='store_true')
     parser.add_argument('--save-from',type=Path,help='copy an existing validation save into this disposable session')
@@ -47,6 +49,8 @@ def main():
            DM_WINDOW=str(int(args.window)),DM_AUDIO=str(int(args.audio)))
     if not args.window:e.pop('DM_WINDOW',None)
     if args.keys:e['DM_KEYS']=args.keys
+    if args.fps is not None:e['DM_FPS_TARGET']=str(args.fps)
+    if args.fixed_step:e['DM_DYNAMIC_FPS']='0'
     # One diagnostic at a time across disposable profiles. Existing user games
     # are detected, never killed to make room for a test.
     with (w/'diagnostic.lock').open('a') as lock:

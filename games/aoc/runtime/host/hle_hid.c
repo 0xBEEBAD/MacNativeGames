@@ -8,6 +8,7 @@
 #include "hle_haptics.h"
 #include "dm_input.h"
 #include "front.h"
+#include "../gfx/nvn/aoc_timing.h"
 #include <stdatomic.h>
 #include <unistd.h>
 #include <strings.h>
@@ -134,6 +135,16 @@ static void *ctl_main(void *arg) {
                 size_t n = strlen(line); if (!n || line[n - 1] != '\n') break;   // a line still being written: read it next time
                 off += (long)n; line[--n] = 0; if (n && line[n - 1] == '\r') line[--n] = 0;
                 if (!n || line[0] == '#') continue;
+                if (!strncmp(line, "fps ", 4)) {
+                    char *end; long target=strtol(line+4,&end,10);
+                    if(end!=line+4 && !*end && target>=0 && target<=120 && aoc_timing_valid((int)target)) {
+                        aoc_timing_set((int)target,aoc_timing_dynamic()); LOG("DM_CTL: fps %ld",target);
+                    } else LOG("DM_CTL: invalid fps (use 0, 30, 60 or 120)");
+                    continue;
+                }
+                if (!strcmp(line,"dynamicfps on") || !strcmp(line,"dynamicfps off")) {
+                    aoc_timing_set(aoc_timing_target(),!strcmp(line,"dynamicfps on")); LOG("DM_CTL: %s",line); continue;
+                }
                 if (!strncmp(line, "shot ", 5)) { dm_gfx_shot_at(1, line + 5); LOG("DM_CTL: screenshot of the next frame → %s", line + 5); continue; }
                 if (!strncmp(line, "texlist ", 8)) { void dm_gfx_texlist(int target); dm_gfx_texlist(atoi(line + 8)); continue; }
                 if (!strncmp(line, "texraw ", 7)) { void dm_gfx_texraw(uint64_t serial, const char *path); char *e2; uint64_t s = strtoull(line + 7, &e2, 10); while (*e2 == ' ') e2++; dm_gfx_texraw(s, e2); continue; }
