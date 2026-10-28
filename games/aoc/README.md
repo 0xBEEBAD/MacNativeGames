@@ -104,6 +104,17 @@ cadence when rendering falls behind. Gaps above 100 ms are capped during
 loading or focus changes. 60 fps is experimental; achieved rendering/display
 rates depend on the scene and screen.
 
+**Known 60 fps cutscene issue:** the first mission's Impa tower cutscene can
+run its animation and camera too fast while dialogue/audio remains at normal
+speed, even with Dynamic step enabled. The
+[FPSLocker configuration for this exact 1.3.0 build](https://github.com/masagrator/FPSLocker-Warehouse/blob/v4/SaltySD/plugins/FPSLocker/patches/01002B00111A2000/C3CF52BF2B05D731.yaml)
+also identifies cutscenes whose speed is fixed to 30 fps. Our task/scene clock
+telemetry does not validate those animation paths, and disabling 120 does not
+resolve this issue. Original 30 is the baseline to compare on replay; an
+automatic cutscene fallback has not been implemented or validated. Keep 60 fps
+experimental until cutscene entry, playback, audio synchronization and return
+to gameplay are tested.
+
 **120 fps is disabled.** Gameplay testing in the first mission, including the
 Impa tower cutscene, exposed accelerated game time at that target. The engine
 also advances gameplay and script timers in integer 60 Hz ticks; the current
