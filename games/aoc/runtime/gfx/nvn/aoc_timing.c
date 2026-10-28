@@ -6,13 +6,23 @@
 extern uint8_t *dm_fps_state __attribute__((weak));
 static _Atomic int target_fps, dynamic_step = 1;
 static uint8_t *state(void) { return &dm_fps_state ? dm_fps_state : NULL; }
-int aoc_timing_valid(int t) { return t == 0 || t == 30 || t == 60 || t == 120; }
+int aoc_timing_valid(int t) { return t == 0 || t == 30 || t == 60; }
+static int safe_target(int t) {
+    // Legacy settings/env overrides must not enable the broken 120 Hz mode.
+    // Gameplay also uses integer 60 Hz ticks, not just the patched float clocks.
+    if (t == 120) {
+        fprintf(stderr, "[dm] AoC 120 fps disabled: gameplay timing is incomplete; using 60 fps\n");
+        return 60;
+    }
+    return t;
+}
 int aoc_timing_target(void) { return atomic_load(&target_fps); }
 int aoc_timing_dynamic(void) { return atomic_load(&dynamic_step); }
 static void put_float(uint8_t *p, float f) {
     uint32_t bits; memcpy(&bits, &f, 4); __atomic_store_n((uint32_t *)p, bits, __ATOMIC_RELEASE);
 }
 void aoc_timing_set(int target, int dynamic) {
+    target = safe_target(target);
     if (!aoc_timing_valid(target)) return;
     uint8_t *p = state();
     if (p) {
@@ -24,12 +34,12 @@ void aoc_timing_set(int target, int dynamic) {
     atomic_store(&dynamic_step, !!dynamic); atomic_store(&target_fps, target);
 }
 void aoc_timing_apply(int profile_target) {
-    int t = profile_target;
+    int t = safe_target(profile_target);
     const char *e = getenv("DM_FPS_TARGET");
     if (e) {
         char *end; long n = strtol(e, &end, 10);
-        t = *e && !*end && n >= 0 && n <= 120 && aoc_timing_valid((int)n) ? (int)n : 0;
-        if (!(*e && !*end && n == t)) fprintf(stderr, "[dm] invalid DM_FPS_TARGET; using original 30 fps\n");
+        if (*e && !*end && (n == 0 || n == 30 || n == 60 || n == 120)) t = safe_target((int)n);
+        else { t = 0; fprintf(stderr, "[dm] invalid DM_FPS_TARGET; using original 30 fps\n"); }
     }
     int dynamic = 1; e = getenv("DM_DYNAMIC_FPS");
     if (e) dynamic = strcmp(e, "0") && strcmp(e, "off");

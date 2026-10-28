@@ -72,7 +72,7 @@ settings. Auto-repeat does not repeatedly toggle a setting.
 |---|---|
 | F1 or Command-comma | Open settings |
 | 1 | Show/hide shortcut hints |
-| 2 | Cycle FPS target: Original 30 → 60 → 120 → Original 30 |
+| 2 | Cycle FPS target: Original 30 ↔ 60 |
 | 3 | Cycle output cap: Auto → 720p → 1080p → 1440p → 2160p |
 | 4 | Toggle dynamic timing (inactive in Original mode) |
 | 5 | Cycle stats: Off → FPS only → Full |
@@ -96,14 +96,21 @@ The runner freezes the binary, rewritten modules and generated profile tables.
 For package validation, `DM_AOC_PROFILE=/existing/absolute/disposable-directory`
 selects separate writable state; paths inside the signed app are rejected.
 
-Settings (F1 or Command-comma) now offer **Original 30**, **30**, **60** and
-**120 fps** targets. Original 30 remains the default. The other targets support
+Settings (F1 or Command-comma) offer **Original 30**, **30** and **60 fps**
+targets. Original 30 remains the default. The other targets support
 **Dynamic step**, which scales the task clock from elapsed scheduler time and
 measures the scene/battle clock independently. The event clock follows the scene
-cadence, so a 120 Hz task cannot impose an 8.3 ms battle step when rendering
-falls behind. Gaps above
-100 ms are capped during loading or focus changes. Higher targets are
-experimental; achieved rendering/display rates depend on the scene and screen.
+cadence when rendering falls behind. Gaps above 100 ms are capped during
+loading or focus changes. 60 fps is experimental; achieved rendering/display
+rates depend on the scene and screen.
+
+**120 fps is disabled.** Gameplay testing in the first mission, including the
+Impa tower cutscene, exposed accelerated game time at that target. The engine
+also advances gameplay and script timers in integer 60 Hz ticks; the current
+patches do not scale those readers below one tick per update. Correct task and
+scene clock telemetry alone does not prove correct game speed. Saved 120 fps
+settings and legacy environment overrides fall back to 60. Re-enabling 120
+requires addressing these timers and testing gameplay and cutscene transitions.
 
 The independent stats pane offers Off, FPS only and Full stats, plus a frame-time
 graph. It reports game presents and actual display FPS separately, frame/GPU
@@ -113,8 +120,8 @@ imported prewarm objects and load/render-pipeline errors. Prewarm imports are
 not a count of shaders actually drawn. Headless runs have no display FPS.
 Shortcut hints remain independently configurable.
 
-For diagnostics, add `--fps 60` or `--fps 120` to `run_aoc.py`; `--fixed-step`
-disables dynamic stepping. `control.txt` also accepts `fps 0|30|60|120` and
+For diagnostics, add `--fps 60` to `run_aoc.py`; `--fixed-step`
+disables dynamic stepping. `control.txt` also accepts `fps 0|30|60` and
 `dynamicfps on|off` for live changes. Direct launches support `DM_FPS_TARGET`
 and `DM_DYNAMIC_FPS=0|1`. Selecting a target in settings saves it for later
 windowed launches. Rebuild the rewritten modules and host together: the loader

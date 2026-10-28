@@ -52,13 +52,17 @@ int main(int argc, const char **argv) { @autoreleasepool {
         const unsigned short gameplayKeys[]={13,0,1,2,38,40,32,34,12,14,6,8,3,5,36,48,49,123,124,125,126};
         for(unsigned i=0;i<sizeof(gameplayKeys)/sizeof(gameplayKeys[0]);i++)
             CHECK("shortcuts preserve gameplay keys",!dm_mac_is_shortcut(gameplayKeys[i]) && dm_mac_shortcut(gameplayKeys[i],state,&key,&value)==DmShortcutNone);
-        for(NSNumber *target in @[@60,@120,@0]) {
+        for(NSNumber *target in @[@60,@0,@60,@0]) {
             CHECK("2 maps to FPS",dm_mac_shortcut(19,state,&key,&value)==DmShortcutChange && key==DmSettingFpsTarget);
             change(key,value);[hud refresh];
-            CHECK("2 cycles original/60/120",state.fps_target==target.intValue);
+            CHECK("2 cycles original/60",state.fps_target==target.intValue);
             NSTextField *values=(id)find(hud,@"shortcut-values");
             CHECK("shortcut HUD shows FPS target",[values.stringValue containsString:target.intValue?target.stringValue:@"30"]);
         }
+        state.fps_target=120;
+        dm_mac_shortcut(19,state,&key,&value);
+        CHECK("legacy 120 shortcut returns to 60",key==DmSettingFpsTarget && value==60);
+        state=original;
         const unsigned short codes[]={18,20,21,23,22,26};
         const DmMacSetting settings[]={DmSettingHints,DmSettingOutput,DmSettingDynamicFps,DmSettingStats,DmSettingFaceLayout,DmSettingFrameGraph};
         const NSInteger values[]={0,1,0,0,1,0};
@@ -72,14 +76,15 @@ int main(int argc, const char **argv) { @autoreleasepool {
         CHECK("shortcut and stats panes do not overlap",!NSIntersectsRect(hud.frame,performance.frame));
         [parent setContentSize:NSMakeSize(1100,790)];[hud refresh];[performance refresh];
         NSPopUpButton *fps=(id)find(panel.window.contentView,@"settings-fps");
-        CHECK("fps control exists",fps!=nil && fps.numberOfItems==4);
-        for(NSNumber *target in @[@60,@120,@30,@0]) {
+        CHECK("fps control exists",fps!=nil && fps.numberOfItems==3);
+        CHECK("broken 120 fps cannot be selected",[fps indexOfItemWithTag:120]==-1);
+        for(NSNumber *target in @[@60,@30,@0]) {
             [fps selectItemWithTag:target.integerValue];[NSApp sendAction:fps.action to:fps.target from:fps];
             CHECK("fps target applies live",state.fps_target==target.intValue);
         }
         NSButton *dynamic=(id)find(panel.window.contentView,@"settings-dynamic-fps");
         CHECK("original mode keeps native timing",!dynamic.enabled);
-        [fps selectItemWithTag:120];[NSApp sendAction:fps.action to:fps.target from:fps];
+        [fps selectItemWithTag:60];[NSApp sendAction:fps.action to:fps.target from:fps];
         [dynamic performClick:nil];CHECK("dynamic checkbox updates state",state.dynamic_fps==0);
         NSPopUpButton *stats=(id)find(panel.window.contentView,@"settings-stats");
         [stats selectItemWithTag:0];[NSApp sendAction:stats.action to:stats.target from:stats];[performance refresh];

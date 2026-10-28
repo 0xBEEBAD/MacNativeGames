@@ -12,8 +12,8 @@ static inline DmShortcutAction dm_mac_shortcut(unsigned short key, DmMacSettings
     if (key == 122) return DmShortcutSettings; // F1
     switch (key) {
         case 18: *setting=DmSettingHints; *value=!s.show_hints; break; // 1
-        case 19: *setting=DmSettingFpsTarget; // 2: Original 30 -> 60 -> 120
-            *value=s.fps_target==60?120:s.fps_target==120?0:60; break;
+        case 19: *setting=DmSettingFpsTarget; // 2: Original 30 <-> 60
+            *value=s.fps_target==60?0:60; break;
         case 20: *setting=DmSettingOutput; *value=(s.output_preset+1)%5; break; // 3
         case 21: *setting=DmSettingDynamicFps; *value=!s.dynamic_fps; break; // 4
         case 23: *setting=DmSettingStats; *value=(s.stats_mode+1)%3; break; // 5

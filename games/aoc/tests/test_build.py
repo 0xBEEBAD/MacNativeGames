@@ -168,6 +168,14 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(set(profile.builds()),{'v327680'})
         self.assertFalse((GAME/'runtime/games/0100965017338000').exists())
 
+    def test_profile_rejects_unsupported_120_fps(self):
+        sys.path.insert(0,str(GAME/'runtime/games'))
+        import game
+        profile=game.load(build.TITLE)
+        profile.rows=[(k,['120'] if k=='fps_target' else v) for k,v in profile.rows]
+        with self.assertRaisesRegex(SystemExit,'120 gameplay timing is incomplete'):
+            game.header(profile)
+
     def test_offline_library_rejects_placeholder_and_missing_key(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); key='0123456789abcdef'; table=root/'map.tsv'

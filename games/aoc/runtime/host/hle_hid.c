@@ -137,9 +137,9 @@ static void *ctl_main(void *arg) {
                 if (!n || line[0] == '#') continue;
                 if (!strncmp(line, "fps ", 4)) {
                     char *end; long target=strtol(line+4,&end,10);
-                    if(end!=line+4 && !*end && target>=0 && target<=120 && aoc_timing_valid((int)target)) {
+                    if(end!=line+4 && !*end && target>=0 && target<=60 && aoc_timing_valid((int)target)) {
                         aoc_timing_set((int)target,aoc_timing_dynamic()); LOG("DM_CTL: fps %ld",target);
-                    } else LOG("DM_CTL: invalid fps (use 0, 30, 60 or 120)");
+                    } else LOG("DM_CTL: invalid fps (use 0, 30 or 60; 120 gameplay timing is incomplete)");
                     continue;
                 }
                 if (!strcmp(line,"dynamicfps on") || !strcmp(line,"dynamicfps off")) {

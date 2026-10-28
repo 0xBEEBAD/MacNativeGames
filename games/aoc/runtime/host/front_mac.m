@@ -173,7 +173,7 @@ static void pad_settings_load(void) {
         else if ([key isEqualToString:@"fullscreen"]) g_start_fullscreen = value.intValue != 0;
         else if ([key isEqualToString:@"output"]) { NSInteger n = value.integerValue; if (n >= 0 && n < 5) g_output_preset = (int)n; }
         else if ([key isEqualToString:@"hints"]) g_show_hints = value.intValue != 0;
-        else if ([key isEqualToString:@"fps_target"]) { int n=value.intValue; if(aoc_timing_valid(n)) fps=n; }
+        else if ([key isEqualToString:@"fps_target"]) { int n=value.intValue; if(n==120 || aoc_timing_valid(n)) fps=n; } // setter migrates legacy 120 to 60
         else if ([key isEqualToString:@"dynamic_fps"]) dynamic=value.intValue!=0;
         else if ([key isEqualToString:@"stats"]) { int n=value.intValue; if(n>=0 && n<=2) g_stats_mode=n; }
         else if ([key isEqualToString:@"frame_graph"]) g_frame_graph=value.intValue!=0;

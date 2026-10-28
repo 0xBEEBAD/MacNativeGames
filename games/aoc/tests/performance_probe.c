@@ -31,11 +31,17 @@ int main(void){
     CHECK(aoc_stats_snapshot(now+500*8333333ull).samples==AOC_STATS_SAMPLES);
     unsetenv("DM_FPS_TARGET");unsetenv("DM_DYNAMIC_FPS");
     aoc_timing_apply(0);CHECK(value(0)==0 && aoc_timing_dynamic());
-    for(int i=0;i<3;i++) {int t=(int[]){30,60,120}[i];aoc_timing_set(t,1);CHECK(value(0)==t && aoc_timing_target()==t);}
-    aoc_timing_set(75,0);CHECK(aoc_timing_target()==120 && aoc_timing_dynamic());
+    for(int i=0;i<3;i++) {int t=(int[]){0,30,60}[i];CHECK(aoc_timing_valid(t));aoc_timing_set(t,1);CHECK(value(0)==t && aoc_timing_target()==t);}
+    CHECK(!aoc_timing_valid(120));
+    aoc_timing_set(120,0);CHECK(value(0)==60 && aoc_timing_target()==60 && !aoc_timing_dynamic());
+    aoc_timing_set(60,1);
+    aoc_timing_set(75,0);CHECK(aoc_timing_target()==60 && aoc_timing_dynamic());
     setenv("DM_FPS_TARGET","120",1);setenv("DM_DYNAMIC_FPS","0",1);
-    aoc_timing_apply(0);CHECK(aoc_timing_target()==120 && !aoc_timing_dynamic());
-    CHECK(fabs(value(AOC_DT)-1.0/120)<1e-7);
+    aoc_timing_apply(0);CHECK(value(0)==60 && aoc_timing_target()==60 && !aoc_timing_dynamic());
+    CHECK(fabs(value(AOC_DT)-1.0/60)<1e-7);
+    unsetenv("DM_FPS_TARGET");unsetenv("DM_DYNAMIC_FPS");
+    aoc_timing_apply(120);CHECK(value(0)==60 && aoc_timing_target()==60 && aoc_timing_dynamic());
+    CHECK(fabs(value(AOC_DT)-1.0/60)<1e-7);
     uint64_t counter0=native_tick(),mach0=mach_absolute_time();usleep(10000);
     uint64_t mach1=mach_absolute_time(),counter1=native_tick();
     mach_timebase_info_data_t tb;mach_timebase_info(&tb);

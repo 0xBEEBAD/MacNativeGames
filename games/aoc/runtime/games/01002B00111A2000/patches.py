@@ -26,6 +26,10 @@ CUTS = {
 # +0x40 accumulated task seconds, +0x48 updates, +0x50 max dt, +0x54 min dt,
 # +0x58 previous target. Long gaps are capped at 100 ms instead of replayed.
 # x8/x16/x17, s16-s18 and flags are dead at these asserted sites.
+# These patches do not cover the game's integer 60 Hz tick consumers of
+# main+0x269e154 (movement/effects/script countdowns). At 120 updates/sec,
+# interval 1 advances those consumers twice as fast. The host consequently
+# restricts targets to 30/60; correct task/scene counters do not validate 120.
 def frame_step(ctx):
     ctx.aoc_timing_abi = 3
     here, emit, state = ctx.here, ctx.emit, ctx.state

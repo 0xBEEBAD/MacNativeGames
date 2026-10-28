@@ -1,7 +1,9 @@
 """Execute AoC's generated ARM64 timing stubs against synthetic game objects.
 
 Install the optional test dependency `unicorn` to run these instruction-level
-checks. No game binaries or renderer are used.
+checks. No game binaries or renderer are used. These exercise the patched
+clocks only, not the game's integer tick readers: synthetic 120 Hz coverage
+does not establish correct gameplay speed, and the host disables that target.
 """
 import importlib.util
 from pathlib import Path

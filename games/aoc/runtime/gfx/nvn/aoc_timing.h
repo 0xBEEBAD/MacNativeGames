@@ -9,7 +9,7 @@ enum { AOC_DYNAMIC = 0x38, AOC_DT = 0x3c, AOC_SECONDS = 0x40,
 int aoc_timing_valid(int target);
 void aoc_timing_apply(int profile_target);
 void aoc_timing_set(int target, int dynamic);
-int aoc_timing_target(void); // 0: original; otherwise 30, 60 or 120
+int aoc_timing_target(void); // 0: original; otherwise 30 or 60; legacy 120 falls back to 60
 int aoc_timing_dynamic(void);
 void aoc_timing_clock(double *seconds, uint64_t *updates);
 void aoc_timing_scene_clock(double *seconds, uint64_t *updates);

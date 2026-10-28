@@ -21,7 +21,7 @@ def main():
     parser.add_argument('--seconds',type=float,default=60)
     parser.add_argument('--shader-cache',type=Path,help='explicit diagnostic cache; default full offline build')
     parser.add_argument('--host-from',type=Path,help='explicit prior host snapshot for a recorded regression run')
-    parser.add_argument('--fps',type=int,choices=(0,30,60,120),help='AoC simulation/presentation target; 0 keeps original timing')
+    parser.add_argument('--fps',type=int,choices=(0,30,60),help='AoC simulation/presentation target; 0 keeps original timing; 120 is disabled pending gameplay timing fixes')
     parser.add_argument('--fixed-step',action='store_true',help='diagnostic: use 1/target instead of measured dynamic step')
     parser.add_argument('--window',action='store_true')
     parser.add_argument('--audio',action='store_true')

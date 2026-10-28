@@ -108,7 +108,7 @@ static NSString *performance_text(DmMacSettings s, BOOL full) {
     NSTextField *heading = label(UI("设置与快捷键", "Settings & shortcuts"), 23, NSColor.labelColor);
     heading.font = [NSFont systemFontOfSize:23 weight:NSFontWeightSemibold];
     NSTextField *subtitle = label(UI("显示与按键即时生效，设置自动保存", "Display and button changes apply immediately; settings save automatically"), 12, NSColor.secondaryLabelColor);
-    self.fps = [self popup:@[UI("原始 · 30 FPS", "Original · 30 FPS"), @"30 FPS", @"60 FPS", @"120 FPS"] tags:@[@0,@30,@60,@120] setting:DmSettingFpsTarget identifier:@"settings-fps"];
+    self.fps = [self popup:@[UI("原始 · 30 FPS", "Original · 30 FPS"), @"30 FPS", @"60 FPS"] tags:@[@0,@30,@60] setting:DmSettingFpsTarget identifier:@"settings-fps"];
     self.dynamicFps = [self check:UI("动态步长（随实际更新时间）", "Dynamic step (follow actual update time)") setting:DmSettingDynamicFps identifier:@"settings-dynamic-fps"];
     self.stats = [self popup:@[UI("关闭", "Off"), UI("仅帧率", "FPS only"), UI("完整统计", "Full stats")] tags:@[@0,@1,@2] setting:DmSettingStats identifier:@"settings-stats"];
     self.frameGraph = [self check:UI("显示帧时间图", "Show frame-time graph") setting:DmSettingFrameGraph identifier:@"settings-frame-graph"];
@@ -135,7 +135,7 @@ static NSString *performance_text(DmMacSettings s, BOOL full) {
     NSStackView *body = column(@[heading, subtitle,
         card(UI("显示", "Display"), @[row(UI("输出上限", "Output cap"), self.output), self.dimensions, self.fullscreen, self.startup]),
         card(UI("帧率与统计", "Frame rate & stats"), @[row(UI("帧率目标", "FPS target"), self.fps), self.dynamicFps,
-            label(UI("60/120 FPS 为实验目标，实际帧率取决于负载与屏幕。原始模式保留游戏时序。", "60/120 FPS are experimental targets; achieved rates depend on workload and display. Original mode preserves game timing."), 11, NSColor.secondaryLabelColor),
+            label(UI("60 FPS 为实验目标。120 FPS 因游戏时序异常暂时停用。", "60 FPS is experimental. 120 FPS is disabled pending gameplay timing fixes."), 11, NSColor.secondaryLabelColor),
             row(UI("统计面板", "Stats pane"), self.stats), self.frameGraph, self.performance]),
         card(UI("控制器", "Controller"), @[row(UI("按键布局", "Button layout"), self.face), self.swap, self.connected, reset]),
         card(UI("画质", "Picture quality"), @[quality, taa, note]),
