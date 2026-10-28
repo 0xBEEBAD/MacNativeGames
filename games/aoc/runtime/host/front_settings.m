@@ -1,20 +1,13 @@
 // AoC's own UI: independent of the other games' front ends.
 #import "front_settings.h"
-#include <stdlib.h>
-#include <string.h>
 #include <math.h>
 
-NSString *dm_settings_text(NSString *chinese, NSString *english) {
-    const char *language = getenv("DM_LANG");
-    return language && !strncmp(language, "zh", 2) ? chinese : english;
-}
-#define UI(C, E) dm_settings_text(@C, @E)
 static NSArray<NSString *> *output_names(void) {
-    return @[UI("自动（随窗口）", "Automatic (window size)"), @"720p · 1280 × 720", @"1080p · 1920 × 1080",
+    return @[@"Automatic (window size)", @"720p · 1280 × 720", @"1080p · 1920 × 1080",
              @"1440p · 2560 × 1440", @"2160p · 3840 × 2160"];
 }
 static NSString *face_name(int layout) {
-    return layout == 2 ? UI("Nintendo · 按标签", "Nintendo labels") : layout == 1 ? UI("Xbox / PlayStation · 按位置", "Xbox / PlayStation positions") : UI("自动识别", "Automatic");
+    return layout == 2 ? @"Nintendo labels" : layout == 1 ? @"Xbox / PlayStation positions" : @"Automatic";
 }
 static NSTextField *label(NSString *text, CGFloat size, NSColor *color) {
     NSTextField *v = [NSTextField wrappingLabelWithString:text];
@@ -48,20 +41,19 @@ static NSString *performance_text(DmMacSettings s, BOOL full) {
     AocStats p = s.performance;
     NSString *game = p.active && p.samples ? [NSString stringWithFormat:@"%.1f",p.game_fps] : @"--";
     NSString *display = p.display_active ? [NSString stringWithFormat:@"%.1f",p.display_fps] : @"--";
-    NSString *head = [NSString stringWithFormat:UI("游戏 %@ FPS · 显示 %@ FPS\n目标 %d · 屏幕 %d Hz · %@", "Game %@ FPS · Display %@ FPS\nTarget %d · Screen %d Hz · %@"),
+    NSString *head = [NSString stringWithFormat:@"Game %@ FPS · Display %@ FPS\nTarget %d · Screen %d Hz · %@",
         game, display, s.fps_target ? s.fps_target : 30, s.screen_fps,
-        s.fps_target && s.dynamic_fps ? UI("动态步长", "Dynamic step") : UI("固定步长", "Fixed step")];
+        s.fps_target && s.dynamic_fps ? @"Dynamic step" : @"Fixed step"];
     if (!full) return head;
     AocShaderStats sh=p.shaders;
     NSString *gpu=p.gpu_ms>=0?[NSString stringWithFormat:@"%.2f",p.gpu_ms]:@"--";
-    NSString *timing = p.active && p.samples ? [NSString stringWithFormat:UI("帧 %.2f ms · GPU %@ ms\np50 %.2f · p95 %.2f · p99 %.2f ms", "Frame %.2f ms · GPU %@ ms\np50 %.2f · p95 %.2f · p99 %.2f ms"),p.frame_ms,gpu,p.p50_ms,p.p95_ms,p.p99_ms] : UI("帧时间：等待采样", "Frame timing: waiting for samples");
-    return [NSString stringWithFormat:UI("%@\n%@\n库 %llu · 清单 %llu 个键\n渲染管线 %llu · 计算管线 %llu\n即时库载入 %llu / %.1f ms\n即时管线 %llu / %.1f ms\n预热载入 %llu 库 / %llu 渲染 / %llu 计算%@\n载入错误 %llu · 渲染管线错误 %llu",
-        "%@\n%@\nLibraries %llu · Inventory %llu keys\nRender PSOs %llu · Compute PSOs %llu\nOn-demand loads %llu / %.1f ms\nOn-demand PSOs %llu / %.1f ms\nPrewarm imported %llu lib / %llu render / %llu compute%@\nLoad errors %llu · Render PSO errors %llu"),
+    NSString *timing = p.active && p.samples ? [NSString stringWithFormat:@"Frame %.2f ms · GPU %@ ms\np50 %.2f · p95 %.2f · p99 %.2f ms",p.frame_ms,gpu,p.p50_ms,p.p95_ms,p.p99_ms] : @"Frame timing: waiting for samples";
+    return [NSString stringWithFormat:@"%@\n%@\nLibraries %llu · Inventory %llu keys\nRender PSOs %llu · Compute PSOs %llu\nOn-demand loads %llu / %.1f ms\nOn-demand PSOs %llu / %.1f ms\nPrewarm imported %llu lib / %llu render / %llu compute%@\nLoad errors %llu · Render PSO errors %llu",
         head,timing,(unsigned long long)sh.libraries,(unsigned long long)sh.inventory,
         (unsigned long long)sh.render_pipelines,(unsigned long long)sh.compute_pipelines,
         (unsigned long long)sh.library_loads,sh.library_ms,(unsigned long long)sh.pipeline_builds,sh.pipeline_ms,
         (unsigned long long)sh.warm_libraries,(unsigned long long)sh.warm_render,(unsigned long long)sh.warm_compute,
-        sh.warming?UI("（进行中）", " (running)"):@"",(unsigned long long)sh.load_errors,(unsigned long long)sh.pipeline_errors];
+        sh.warming?@" (running)":@"",(unsigned long long)sh.load_errors,(unsigned long long)sh.pipeline_errors];
 }
 @interface DmPreferencesDocument : NSView
 @end
@@ -100,46 +92,44 @@ static NSString *performance_text(DmMacSettings s, BOOL full) {
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
     if (!(self = [super initWithWindow:window])) return nil;
     self.parent = parent; self.snapshot = snapshot; self.change = change;
-    window.title = UI("塞尔达无双 灾厄启示录 · 设置", "Age of Calamity · Settings");
+    window.title = @"Hyrule Warriors: Age of Calamity · Settings";
     window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     window.releasedWhenClosed = NO; window.hidesOnDeactivate = YES; window.delegate = self;
     window.collectionBehavior = NSWindowCollectionBehaviorFullScreenAuxiliary;
     window.titlebarAppearsTransparent = YES; window.backgroundColor = [NSColor colorWithWhite:0.075 alpha:1];
-    NSTextField *heading = label(UI("设置与快捷键", "Settings & shortcuts"), 23, NSColor.labelColor);
+    NSTextField *heading = label(@"Settings & shortcuts", 23, NSColor.labelColor);
     heading.font = [NSFont systemFontOfSize:23 weight:NSFontWeightSemibold];
-    NSTextField *subtitle = label(UI("显示与按键即时生效，设置自动保存", "Display and button changes apply immediately; settings save automatically"), 12, NSColor.secondaryLabelColor);
-    self.fps = [self popup:@[UI("原始 · 30 FPS", "Original · 30 FPS"), @"30 FPS", @"60 FPS"] tags:@[@0,@30,@60] setting:DmSettingFpsTarget identifier:@"settings-fps"];
-    self.dynamicFps = [self check:UI("动态步长（随实际更新时间）", "Dynamic step (follow actual update time)") setting:DmSettingDynamicFps identifier:@"settings-dynamic-fps"];
-    self.stats = [self popup:@[UI("关闭", "Off"), UI("仅帧率", "FPS only"), UI("完整统计", "Full stats")] tags:@[@0,@1,@2] setting:DmSettingStats identifier:@"settings-stats"];
-    self.frameGraph = [self check:UI("显示帧时间图", "Show frame-time graph") setting:DmSettingFrameGraph identifier:@"settings-frame-graph"];
+    NSTextField *subtitle = label(@"Display and button changes apply immediately; settings save automatically", 12, NSColor.secondaryLabelColor);
+    self.fps = [self popup:@[@"Original · 30 FPS", @"30 FPS", @"60 FPS"] tags:@[@0,@30,@60] setting:DmSettingFpsTarget identifier:@"settings-fps"];
+    self.dynamicFps = [self check:@"Dynamic step (follow actual update time)" setting:DmSettingDynamicFps identifier:@"settings-dynamic-fps"];
+    self.stats = [self popup:@[@"Off", @"FPS only", @"Full stats"] tags:@[@0,@1,@2] setting:DmSettingStats identifier:@"settings-stats"];
+    self.frameGraph = [self check:@"Show frame-time graph" setting:DmSettingFrameGraph identifier:@"settings-frame-graph"];
     self.performance = label(@"", 10, NSColor.secondaryLabelColor);
     self.performance.font = [NSFont monospacedSystemFontOfSize:10 weight:NSFontWeightRegular];
     self.performance.identifier = @"settings-performance";
     self.output = [self popup:output_names() tags:@[@0,@1,@2,@3,@4] setting:DmSettingOutput identifier:@"settings-output"];
     self.dimensions = label(@"", 11, NSColor.secondaryLabelColor);
-    self.fullscreen = [self check:UI("全屏显示", "Full screen") setting:DmSettingFullscreen identifier:@"settings-fullscreen"];
-    self.startup = [self check:UI("下次启动时全屏", "Start in full screen") setting:DmSettingStartFullscreen identifier:@"settings-start-fullscreen"];
+    self.fullscreen = [self check:@"Full screen" setting:DmSettingFullscreen identifier:@"settings-fullscreen"];
+    self.startup = [self check:@"Start in full screen" setting:DmSettingStartFullscreen identifier:@"settings-start-fullscreen"];
     self.face = [self popup:@[face_name(0), face_name(2), face_name(1)] tags:@[@0,@2,@1] setting:DmSettingFaceLayout identifier:@"settings-controller"];
-    self.swap = [self check:UI("交换 A / B", "Swap A / B") setting:DmSettingSwapAB identifier:@"settings-swap-ab"];
+    self.swap = [self check:@"Swap A / B" setting:DmSettingSwapAB identifier:@"settings-swap-ab"];
     self.connected = label(@"", 11, NSColor.secondaryLabelColor);
-    NSButton *reset = [NSButton buttonWithTitle:UI("恢复控制器默认设置", "Reset controller layout") target:self action:@selector(resetController:)];
+    NSButton *reset = [NSButton buttonWithTitle:@"Reset controller layout" target:self action:@selector(resetController:)];
     reset.bezelStyle = NSBezelStyleRounded;
-    NSTextField *quality = label(UI("画质：游戏原始设置", "Picture quality: original game settings"), 12, NSColor.labelColor);
-    NSButton *taa = [NSButton checkboxWithTitle:UI("MetalFX 时间性边缘平滑（尚未适配）", "MetalFX temporal anti-aliasing (not yet supported)") target:nil action:nil];
+    NSTextField *quality = label(@"Picture quality: original game settings", 12, NSColor.labelColor);
+    NSButton *taa = [NSButton checkboxWithTitle:@"MetalFX temporal anti-aliasing (not yet supported)" target:nil action:nil];
     taa.enabled = NO; taa.identifier = @"settings-metalfx-unavailable"; taa.accessibilityIdentifier = @"settings-metalfx-unavailable";
-    NSTextField *note = label(UI("输出选项仅控制显示尺寸上限，不改变游戏内部渲染分辨率。MetalFX 与内部画质增强需要单独适配。",
-        "Output presets cap the display size, not the game's internal render resolution. MetalFX and internal quality enhancements require game-specific support."), 11, NSColor.secondaryLabelColor);
-    self.hints = [self check:UI("显示游戏内快捷键提示", "Show in-game shortcut hints") setting:DmSettingHints identifier:@"settings-hints"];
-    NSTextField *keys = label(UI("F1 / ⌘,  设置    ·    ⌃⌘F  全屏\n1  提示 · 2  帧率 · 3  输出 · 4  动态步长\n5  统计 · 6  控制器布局 · 7  帧时间图\nWASD  移动 · 方向键  十字键\nJ / K / U / I  A / B / X / Y\nQ / E  L / R · Z / C  ZL / ZR\nF / G  按下左右摇杆 · Return / Tab  ＋ / －\n空格  摇动控制器 · 鼠标左键  触摸屏",
-        "F1 / ⌘,  Settings · ⌃⌘F  Full screen\n1  Hints · 2  FPS · 3  Output · 4  Dynamic step\n5  Stats · 6  Controller layout · 7  Frame graph\nWASD  Move · Arrow keys  D-pad\nJ / K / U / I  A / B / X / Y\nQ / E  L / R · Z / C  ZL / ZR\nF / G  Stick clicks · Return / Tab  + / −\nSpace  Shake · Left mouse  Touch screen"), 11, NSColor.secondaryLabelColor);
+    NSTextField *note = label(@"Output presets cap the display size, not the game's internal render resolution. MetalFX and internal quality enhancements require game-specific support.", 11, NSColor.secondaryLabelColor);
+    self.hints = [self check:@"Show in-game shortcut hints" setting:DmSettingHints identifier:@"settings-hints"];
+    NSTextField *keys = label(@"F1 / ⌘,  Settings · ⌃⌘F  Full screen\n1  Hints · 2  FPS · 3  Output · 4  Dynamic step\n5  Stats · 6  Controller layout · 7  Frame graph\nWASD  Move · Arrow keys  D-pad\nJ / K / U / I  A / B / X / Y\nQ / E  L / R · Z / C  ZL / ZR\nF / G  Stick clicks · Return / Tab  + / −\nSpace  Shake · Left mouse  Touch screen", 11, NSColor.secondaryLabelColor);
     NSStackView *body = column(@[heading, subtitle,
-        card(UI("显示", "Display"), @[row(UI("输出上限", "Output cap"), self.output), self.dimensions, self.fullscreen, self.startup]),
-        card(UI("帧率与统计", "Frame rate & stats"), @[row(UI("帧率目标", "FPS target"), self.fps), self.dynamicFps,
-            label(UI("60 FPS 为实验目标。120 FPS 因游戏时序异常暂时停用。", "60 FPS is experimental. 120 FPS is disabled pending gameplay timing fixes."), 11, NSColor.secondaryLabelColor),
-            row(UI("统计面板", "Stats pane"), self.stats), self.frameGraph, self.performance]),
-        card(UI("控制器", "Controller"), @[row(UI("按键布局", "Button layout"), self.face), self.swap, self.connected, reset]),
-        card(UI("画质", "Picture quality"), @[quality, taa, note]),
-        card(UI("快捷键", "Shortcuts"), @[self.hints, keys])], 12);
+        card(@"Display", @[row(@"Output cap", self.output), self.dimensions, self.fullscreen, self.startup]),
+        card(@"Frame rate & stats", @[row(@"FPS target", self.fps), self.dynamicFps,
+            label(@"60 FPS is experimental. 120 FPS is disabled pending gameplay timing fixes.", 11, NSColor.secondaryLabelColor),
+            row(@"Stats pane", self.stats), self.frameGraph, self.performance]),
+        card(@"Controller", @[row(@"Button layout", self.face), self.swap, self.connected, reset]),
+        card(@"Picture quality", @[quality, taa, note]),
+        card(@"Shortcuts", @[self.hints, keys])], 12);
     body.translatesAutoresizingMaskIntoConstraints = NO;
     [window.contentView addSubview:body];
     [NSLayoutConstraint activateConstraints:@[
@@ -195,8 +185,8 @@ static NSString *performance_text(DmMacSettings s, BOOL full) {
     self.performance.stringValue=performance_text(s,YES);
     self.swap.state = s.swap_ab; self.startup.state = s.start_fullscreen;
     self.fullscreen.state = s.fullscreen; self.hints.state = s.show_hints;
-    self.dimensions.stringValue = [NSString stringWithFormat:UI("当前输出 %lu × %lu · 自动保持窗口比例", "Current output %lu × %lu · window aspect preserved"), s.output_width, s.output_height];
-    self.connected.stringValue = [NSString stringWithFormat:UI("已连接 %lu 个控制器 · 此项调整按键映射，不模拟 Joy-Con 类型", "%lu controllers connected · changes button mapping, not Joy-Con emulation"), s.controllers];
+    self.dimensions.stringValue = [NSString stringWithFormat:@"Current output %lu × %lu · window aspect preserved", s.output_width, s.output_height];
+    self.connected.stringValue = [NSString stringWithFormat:@"%lu controllers connected · changes button mapping, not Joy-Con emulation", s.controllers];
 }
 @end
 
@@ -214,7 +204,7 @@ static NSString *performance_text(DmMacSettings s, BOOL full) {
     self.layer.backgroundColor = [NSColor colorWithWhite:0.035 alpha:0.86].CGColor;
     self.layer.cornerRadius = 10; self.layer.borderWidth = 1;
     self.layer.borderColor = [NSColor colorWithWhite:1 alpha:0.16].CGColor;
-    NSButton *button = [NSButton buttonWithTitle:UI("设置与快捷键   F1 / ⌘,", "Settings & shortcuts   F1 / ⌘,") target:self action:@selector(openPanel:)];
+    NSButton *button = [NSButton buttonWithTitle:@"Settings & shortcuts   F1 / ⌘," target:self action:@selector(openPanel:)];
     button.bordered = NO; button.font = [NSFont boldSystemFontOfSize:12]; button.contentTintColor = NSColor.whiteColor;
     self.button=button;
     button.frame = NSMakeRect(10, 148, 240, 24); button.accessibilityIdentifier = @"settings-open";
@@ -230,14 +220,14 @@ static NSString *performance_text(DmMacSettings s, BOOL full) {
 - (void)refresh {
     DmMacSettings s = self.snapshot(); self.hidden = !s.show_hints;
     if (self.superview) [self setFrameOrigin:NSMakePoint(12, 12)];
-    NSArray<NSString *> *stats=@[UI("关闭", "Off"), UI("仅帧率", "FPS only"), UI("完整", "Full")];
-    NSString *fps=s.fps_target?[NSString stringWithFormat:@"%d FPS",s.fps_target]:UI("原始 30 FPS", "Original 30 FPS");
-    NSString *dynamic=s.dynamic_fps?UI("开启", "On"):UI("关闭", "Off");
-    if(!s.fps_target) dynamic=[dynamic stringByAppendingString:UI("（原始模式不启用）", " (inactive in Original)")];
-    self.text.stringValue = [NSString stringWithFormat:UI("1  提示：显示 / 隐藏\n2  帧率目标：%@\n3  输出：%@\n4  动态步长：%@\n5  统计：%@\n6  控制器：%@%@\n7  帧时间图：%@\n⌃⌘F  全屏 · %lu × %lu", "1  Hints: show / hide\n2  FPS target: %@\n3  Output: %@\n4  Dynamic step: %@\n5  Stats: %@\n6  Controller: %@%@\n7  Frame graph: %@\n⌃⌘F  Full screen · %lu × %lu"),
+    NSArray<NSString *> *stats=@[@"Off", @"FPS only", @"Full"];
+    NSString *fps=s.fps_target?[NSString stringWithFormat:@"%d FPS",s.fps_target]:@"Original 30 FPS";
+    NSString *dynamic=s.dynamic_fps?@"On":@"Off";
+    if(!s.fps_target) dynamic=[dynamic stringByAppendingString:@" (inactive in Original)"];
+    self.text.stringValue = [NSString stringWithFormat:@"1  Hints: show / hide\n2  FPS target: %@\n3  Output: %@\n4  Dynamic step: %@\n5  Stats: %@\n6  Controller: %@%@\n7  Frame graph: %@\n⌃⌘F  Full screen · %lu × %lu",
         fps,output_names()[MAX(0, MIN(4, s.output_preset))],dynamic,stats[MAX(0,MIN(2,s.stats_mode))],
-        face_name(s.face_layout),s.swap_ab?UI(" · A/B 已交换", " · A/B swapped"):@"",
-        s.frame_graph?UI("开启", "On"):UI("关闭", "Off"),s.output_width,s.output_height];
+        face_name(s.face_layout),s.swap_ab?@" · A/B swapped":@"",
+        s.frame_graph?@"On":@"Off",s.output_width,s.output_height];
     NSSize size=[self.text sizeThatFits:NSMakeSize(232,CGFLOAT_MAX)];
     CGFloat height=ceil(size.height)+44;
     [self setFrameSize:NSMakeSize(260,height)];
@@ -255,7 +245,7 @@ static NSString *performance_text(DmMacSettings s, BOOL full) {
 - (void)drawRect:(NSRect)dirty {
     (void)dirty; AocStats p=self.sample;
     NSDictionary *style=@{NSFontAttributeName:[NSFont monospacedSystemFontOfSize:9 weight:NSFontWeightRegular],NSForegroundColorAttributeName:NSColor.lightGrayColor};
-    [UI("帧时间 ms · 最近 240 帧", "Frame time ms · last 240 frames") drawAtPoint:NSMakePoint(0,self.bounds.size.height-15) withAttributes:style];
+    [@"Frame time ms · last 240 frames" drawAtPoint:NSMakePoint(0,self.bounds.size.height-15) withAttributes:style];
     NSRect plot=NSMakeRect(34,8,MAX(1,self.bounds.size.width-40),self.bounds.size.height-30);
     double high=40;
     for(unsigned i=0;i<p.samples;i++) high=fmax(high,p.history[i]);

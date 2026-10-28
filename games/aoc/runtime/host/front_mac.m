@@ -339,8 +339,8 @@ static void pads_start(void) {
 static DmSettingsMenu *g_settings_menu_target;
 static void install_controller_menu(NSMenu *bar) {
     g_settings_menu_target = [DmSettingsMenu new];
-    NSMenu *controller = [[NSMenu alloc] initWithTitle:@"控制器"];
-    const char *titles[] = {"自动（推荐）", "按位置（Xbox / PlayStation）", "按标签（Nintendo）"};
+    NSMenu *controller = [[NSMenu alloc] initWithTitle:@"Controller"];
+    const char *titles[] = {"Automatic (recommended)", "By position (Xbox / PlayStation)", "By label (Nintendo)"};
     for (int i = 0; i < 3; i++) {
         NSMenuItem *item = [controller addItemWithTitle:@(titles[i]) action:@selector(chooseFaceLayout:) keyEquivalent:@""];
         item.target = g_settings_menu_target;
@@ -348,24 +348,24 @@ static void install_controller_menu(NSMenu *bar) {
         g_face_items[i] = item;
     }
     [controller addItem:NSMenuItem.separatorItem];
-    g_swap_item = [controller addItemWithTitle:@"交换 A / B" action:@selector(toggleSwapAB:) keyEquivalent:@""];
+    g_swap_item = [controller addItemWithTitle:@"Swap A / B" action:@selector(toggleSwapAB:) keyEquivalent:@""];
     g_swap_item.target = g_settings_menu_target;
-    [controller addItemWithTitle:@"恢复控制器默认设置" action:@selector(resetController:) keyEquivalent:@""].target = g_settings_menu_target;
-    [[bar addItemWithTitle:@"控制器" action:nil keyEquivalent:@""] setSubmenu:controller];
+    [controller addItemWithTitle:@"Reset controller layout" action:@selector(resetController:) keyEquivalent:@""].target = g_settings_menu_target;
+    [[bar addItemWithTitle:@"Controller" action:nil keyEquivalent:@""] setSubmenu:controller];
 
-    NSMenu *view = [[NSMenu alloc] initWithTitle:@"显示"];
-    g_fullscreen_item = [view addItemWithTitle:@"下次启动时全屏" action:@selector(toggleStartFullscreen:) keyEquivalent:@""];
+    NSMenu *view = [[NSMenu alloc] initWithTitle:@"Display"];
+    g_fullscreen_item = [view addItemWithTitle:@"Start in full screen" action:@selector(toggleStartFullscreen:) keyEquivalent:@""];
     g_fullscreen_item.target = g_settings_menu_target;
-    NSMenu *outputs = [[NSMenu alloc] initWithTitle:dm_settings_text(@"输出尺寸上限", @"Output size cap")];
-    NSArray<NSString *> *names = @[dm_settings_text(@"自动（随窗口）", @"Automatic (window size)"), @"720p", @"1080p", @"1440p", @"2160p"];
+    NSMenu *outputs = [[NSMenu alloc] initWithTitle:@"Output size cap"];
+    NSArray<NSString *> *names = @[@"Automatic (window size)", @"720p", @"1080p", @"1440p", @"2160p"];
     for (int i = 0; i < 5; i++) {
         NSMenuItem *item = [outputs addItemWithTitle:names[i] action:@selector(chooseOutput:) keyEquivalent:@""];
         item.tag = i; item.target = g_settings_menu_target; g_output_items[i] = item;
     }
     [[view addItemWithTitle:outputs.title action:nil keyEquivalent:@""] setSubmenu:outputs];
-    g_hints_item = [view addItemWithTitle:dm_settings_text(@"快捷键提示", @"Shortcut hints") action:@selector(toggleHints:) keyEquivalent:@""];
+    g_hints_item = [view addItemWithTitle:@"Shortcut hints" action:@selector(toggleHints:) keyEquivalent:@""];
     g_hints_item.target = g_settings_menu_target;
-    [[bar addItemWithTitle:@"显示" action:nil keyEquivalent:@""] setSubmenu:view];
+    [[bar addItemWithTitle:@"Display" action:nil keyEquivalent:@""] setSubmenu:view];
     pad_apply_settings();
 }
 
@@ -422,6 +422,7 @@ void front_run(void (*guest)(void)) {
     static id activity; activity = [[NSProcessInfo processInfo] beginActivityWithOptions:NSActivityUserInitiated | NSActivityLatencyCritical reason:@"game"];
     if (!getenv("DM_WINDOW")) { guest(); return; }
     @autoreleasepool {
+        NSProcessInfo.processInfo.processName = @DM_GAME_NAME;
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
         NSRect r = NSMakeRect(0, 0, 1280, 720);
@@ -456,11 +457,11 @@ void front_run(void (*guest)(void)) {
         g_performance_hud=[[DmPerformanceHUD alloc] initWithSnapshot:^{ return settings_snapshot(); }];
         [v addSubview:g_performance_hud]; [g_performance_hud refresh];
         // Main menu: AppKit runs ⌘ shortcuts only through menu items, so ⌘Q quits and ⌃⌘F toggles fullscreen from here (AppKit shows the item as Globe-F and keeps ⌃⌘F as a hidden twin)
-        NSMenu *bar = [NSMenu new], *app = [NSMenu new], *wm = [[NSMenu alloc] initWithTitle:@"Window"];
-        [[bar addItemWithTitle:@"" action:nil keyEquivalent:@""] setSubmenu:app];
+        NSMenu *bar = [NSMenu new], *app = [[NSMenu alloc] initWithTitle:@DM_GAME_NAME], *wm = [[NSMenu alloc] initWithTitle:@"Window"];
+        [[bar addItemWithTitle:@DM_GAME_NAME action:nil keyEquivalent:@""] setSubmenu:app];
         [app addItemWithTitle:@"Quit " DM_GAME_NAME action:@selector(terminate:) keyEquivalent:@"q"];
         install_controller_menu(bar);
-        NSMenuItem *preferences = [app insertItemWithTitle:dm_settings_text(@"设置…", @"Settings…") action:@selector(openSettings:) keyEquivalent:@"," atIndex:0];
+        NSMenuItem *preferences = [app insertItemWithTitle:@"Settings…" action:@selector(openSettings:) keyEquivalent:@"," atIndex:0];
         preferences.target = g_settings_menu_target;
         [app insertItem:NSMenuItem.separatorItem atIndex:1];
         settings_refresh();

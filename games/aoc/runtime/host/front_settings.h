@@ -28,4 +28,3 @@ typedef void (^DmSettingsChange)(DmMacSetting setting, NSInteger value);
 - (instancetype)initWithSnapshot:(DmSettingsSnapshot)snapshot;
 - (void)refresh;
 @end
-NSString *dm_settings_text(NSString *chinese, NSString *english);

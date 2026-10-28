@@ -19,4 +19,4 @@ subprocess.run(['clang', '-arch', 'arm64', '-mmacosx-version-min=26.0', '-O1', '
                 '-framework', 'Cocoa', '-framework', 'QuartzCore', '-o', str(binary)], check=True)
 for language in ('zh-Hans', 'en-US'):
     subprocess.run([str(binary), '--self-test'], env=dict(os.environ, DM_LANG=language), check=True)
-print('Native settings controls and output sizing passed in Chinese and English.')
+print('English settings controls and output sizing passed with both game language overrides.')

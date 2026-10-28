@@ -13,7 +13,8 @@ import sys
 
 GAME = Path(__file__).resolve().parents[1]
 TITLE = '01002B00111A2000'
-APP_NAME = 'Hyrule Warriors Age of Calamity'
+APP_NAME = 'Hyrule Warriors: Age of Calamity'
+PROFILE_NAME = 'Hyrule Warriors Age of Calamity'
 LIBHAC_SHA256 = '1431267861db5ff68216315b164f10c0edab4df162cedf5429bf8a143b76de19'
 
 
@@ -178,7 +179,7 @@ def package(source, build, output, language):
     except Exception:
         # Retain a failed package for inspection; never overwrite a working app.
         raise
-    print(f'Built {output}\nSave: ~/Library/Application Support/{APP_NAME}/save')
+    print(f'Built {output}\nSave: ~/Library/Application Support/{PROFILE_NAME}/save')
 
 
 def publish(partial, output):

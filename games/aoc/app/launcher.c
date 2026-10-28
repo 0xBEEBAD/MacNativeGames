@@ -68,7 +68,7 @@ int main(void) {
     join(lockpath, sizeof lockpath, run, "session.lock");
     int lock = open(lockpath, O_RDWR | O_CREAT, 0600);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB)) {
-        fprintf(stderr, "Age of Calamity is already running or its profile is unavailable\n");
+        fprintf(stderr, "Hyrule Warriors: Age of Calamity is already running or its profile is unavailable\n");
         return 1;
     }
     // Keep the lock through exec so a second app cannot write this save profile.

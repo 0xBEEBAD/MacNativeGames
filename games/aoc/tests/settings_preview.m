@@ -32,10 +32,10 @@ int main(int argc, const char **argv) { @autoreleasepool {
     [NSApplication sharedApplication]; [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
     NSWindow *parent = [[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,1100,790)
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
-    parent.title = @"Age of Calamity 设置预览 · 无游戏数据"; [parent center];
+    parent.title = @"Hyrule Warriors: Age of Calamity · Settings Preview · No game data"; [parent center];
     parent.contentView.wantsLayer=YES;parent.contentView.layer.backgroundColor=[NSColor colorWithRed:.07 green:.12 blue:.20 alpha:1].CGColor;
-    NSTextField *title=[NSTextField labelWithString:@"Age of Calamity\n设置面板预览"];
-    title.textColor=NSColor.whiteColor;title.font=[NSFont systemFontOfSize:32 weight:NSFontWeightSemibold];title.frame=NSMakeRect(40,320,450,110);[parent.contentView addSubview:title];
+    NSTextField *title=[NSTextField labelWithString:@"Hyrule Warriors: Age of Calamity\nSettings panel preview"];
+    title.textColor=NSColor.whiteColor;title.font=[NSFont systemFontOfSize:32 weight:NSFontWeightSemibold];title.frame=NSMakeRect(40,320,900,110);[parent.contentView addSubview:title];
     DmSettingsPanel *panel = [[DmSettingsPanel alloc] initWithParent:parent snapshot:^{return state;}
         change:^(DmMacSetting key, NSInteger value){change(key,value);}];
     DmShortcutHUD *hud=[[DmShortcutHUD alloc] initWithSnapshot:^{return state;} openSettings:^{[panel showPanel];}];
