@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include "nvn_mtl.h"
 #include "nvn_obj.h"
+#include "nvn_impl.h"   // NVN_BLOCKING: release the guest core only while a write-back waits
 #include "../tex/nvn_fmt_mtl.h"
 #include "../tex/nvn_deswizzle.h"
 #include "../tex/nvn_deswizzle_gpu.h"
@@ -282,18 +283,18 @@ static void res_site_report(int top) {
     }
     pthread_mutex_unlock(&g_res_mu);
 }
-/* GPU memory budget: TOTK_GPU_BUDGET_MB, default 40% of physical memory on the Mac (0 disables). Checked before every
-   submission and residency commit, in the no-submit mode too, so the growth is reported with its sites instead of
-   exhausting wired memory. Off by default on iOS: there the system's per-app limit bounds GPU memory and ends only the app,
-   and 40% of an iPhone 14 (2284 MB) stopped the game in the world while it used 3.6 of its 4 GB (2026-10-19). */
+/* GPU memory budget (diagnostics): TOTK_GPU_BUDGET_MB=<MB> stops the game with the residency sites once Metal has
+   allocated more, checked before every submission and residency commit, in the no-submit mode too. Off by default on
+   every platform (user 2026-10-28, "去掉自己的看门狗"): the Mac's 5000 MB line (30 % of memory) stopped normal play at
+   2560x1440 and while loading (#72, #614, #616, #1143), and the iPhone's 40 % (2284 MB) stopped the game in the world
+   while it used 3.6 of its 4 GB (2026-10-19). It was added after four macOS kernel panics in the GPU driver with about
+   15 GB wired on a 16 GB Mac, early in the port; set it again to find unbounded growth. */
 static uint64_t gpu_budget_bytes(void) {
     static uint64_t b; static int init;
     if (!init) {
         init = 1; const char *e = getenv("TOTK_GPU_BUDGET_MB");
-        if (e) b = strtoull(e, NULL, 10) << 20;
-        else if (TARGET_OS_IPHONE) b = 0;
-        else { uint64_t phys = 0; size_t n = sizeof phys; if (sysctlbyname("hw.memsize", &phys, &n, NULL, 0) || !phys) MDIE("hw.memsize unavailable for the GPU memory budget"); b = phys / 5 * 2; }
-        MLOG("显存预算 %llu MB（TOTK_GPU_BUDGET_MB 覆盖，0 关闭）", (unsigned long long)(b >> 20));
+        b = e ? strtoull(e, NULL, 10) << 20 : 0;
+        if (b) MLOG("显存预算 %llu MB（TOTK_GPU_BUDGET_MB，诊断：超过就停游戏）", (unsigned long long)(b >> 20));
     }
     return b;
 }
@@ -2905,10 +2906,19 @@ static void wb_write_list(wb_ent **list, int nl, int force) {
     @autoreleasepool { wb_write_list_body(list, nl, force); }
     if (tl) totk_tl(TL_WB_OUT, (uint64_t)nl, (uint64_t)blit);
 }
+/* Cache maintenance can reach these waits without an NVN_BLOCKING entry point. Keeping the guest's virtual core
+   while sleeping here prevents its other workers from using it (#552). No renderer lock is held across the handoff;
+   reacquire the core before checking freshness or protecting pages for the CPU copy. Do not extend this guard over
+   wb_level_back: by then pages can be marked busy, and a worker faulting on them must not block core reacquisition.
+   Nested guards and host threads are no-ops. */
+static void wb_wait_gpu(wb_ent **list, int nl) {
+    NVN_BLOCKING();
+    { extern void nvn_x_drain(void) __attribute__((weak)); if (nvn_x_drain) nvn_x_drain(); }
+    WB_WAIT_GPU(list, nl)
+}
 static void wb_write_list_body(wb_ent **list, int nl, int force) {
     if (!force) { BOTW_LATE_FILTER(list, nl) } if (!nl) return;   // Breath of the Wild: renderings that land on completion are not waited for
-    { extern void nvn_x_drain(void) __attribute__((weak)); if (nvn_x_drain) nvn_x_drain(); }   // translation thread: nothing queued overtakes this read-back (as for ReadTexels)
-    WB_WAIT_GPU(list, nl)
+    wb_wait_gpu(list, nl);   // queued translation cannot overtake this read-back (as for ReadTexels)
     /* Freshness is decided for every entry before anything is written back (a write-back marks its pages written), and
        of several renderings of the same memory (texture objects over it) only the newest is written back. */
     int fresh[512];
