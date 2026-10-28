@@ -1,7 +1,8 @@
 #import "start_screen.h"
 #import <GameController/GameController.h>
+#include "totk_ui_lang.h"
 
-static BOOL zh(void) { return [NSLocale.preferredLanguages.firstObject hasPrefix:@"zh"]; }
+static BOOL zh(void) { return totk_ui_zh(); }   // the language of the host's other text (boot screen, overlays; TOTK_UI_LANG overrides)
 static NSString *T(NSString *z, NSString *e) { return zh() ? z : e; }
 
 @implementation TOTKStartView {
@@ -50,8 +51,13 @@ static NSString *T(NSString *z, NSString *e) { return zh() ? z : e; }
     _hasPicture = [self settingsPaneHas:@"TOTK_DOCKED"];
 
     UILabel *note = [UILabel new];
+#ifdef GAME_BOTW
     note.text = T(@"1080p：输出和画面都是 1920×1080，更清晰也更吃性能。设置也可以在“设置”App 里改。",
                   @"1080p: 1920×1080 output and scene, sharper and heavier. The Settings app has these choices too.");
+#else   // Tears of the Kingdom's docked settings keep the scene at 1600x900 (main.m apply_display_settings)
+    note.text = T(@"1080p：输出 1920×1080，画面 1600×900，更清晰也更吃性能。设置也可以在“设置”App 里改。",
+                  @"1080p: 1920×1080 output with a 1600×900 scene, sharper and heavier. The Settings app has these choices too.");
+#endif
     note.font = [UIFont systemFontOfSize:13]; note.textColor = [UIColor colorWithWhite:0.6 alpha:1];
     note.numberOfLines = 0; note.textAlignment = NSTextAlignmentCenter;
     [note.widthAnchor constraintLessThanOrEqualToConstant:520].active = YES;
@@ -138,7 +144,7 @@ static NSString *T(NSString *z, NSString *e) { return zh() ? z : e; }
     float x = g.leftThumbstick.xAxis.value, y = g.leftThumbstick.yAxis.value;
     BOOL up = g.dpad.up.isPressed || y > 0.5, down = g.dpad.down.isPressed || y < -0.5;
     BOOL left = g.dpad.left.isPressed || x < -0.5, right = g.dpad.right.isPressed || x > 0.5;
-    BOOL confirm = g.buttonA.isPressed || g.buttonB.isPressed;   // the confirm button of either face layout
+    BOOL confirm = g.buttonA.isPressed || g.buttonMenu.isPressed;   // A or the menu button; B is back, never "Play" (after PR #1174)
     BOOL any = up || down || left || right || confirm;
     if (!any) { _held = NO; return; }
     if (_held) return;

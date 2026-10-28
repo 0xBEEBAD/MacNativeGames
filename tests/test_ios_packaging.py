@@ -118,8 +118,11 @@ class StartScreen(unittest.TestCase):
         ios = TOOLS.parent
         main = (ios/'Sources/main.m').read_text()
         self.assertIn('#import "start_screen.h"', main)
-        start = re.search(r'TOTKStartView alloc\] initWithFrame:self\.view\.bounds onStart:\^\{(.*?)\}\]\];', main, re.S)
+        start = re.search(r'void \(\^start\)\(void\) = \^\{(.*?)\n    \};', main, re.S)
         self.assertTrue(start, 'the start screen before the boot')
+        self.assertIn('TOTKStartView alloc] initWithFrame:self.view.bounds onStart:start]', main)
+        # a script's run (TOTK_START_SCREEN=0) starts the same way without the screen (after PR #1174)
+        self.assertRegex(main, r'getenv\("TOTK_START_SCREEN"\);\n    if \(screen && !strcmp\(screen, "0"\)\) start\(\);')
         body = start.group(1)
         self.assertLess(body.index('apply_display_settings()'), body.index('runtime_ios_sync_drawable'))
         self.assertLess(body.index('runtime_ios_sync_drawable'), body.index('boot]'))

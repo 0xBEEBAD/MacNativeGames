@@ -142,11 +142,16 @@ static void apply_display_settings(void) {
     [self boot];
 #else
     __weak TOTKGameController *weak = self;
-    [self.view addSubview:[[TOTKStartView alloc] initWithFrame:self.view.bounds onStart:^{
+    void (^start)(void) = ^{
         apply_display_settings();
         runtime_ios_sync_drawable(weak.gameView);   // the drawable follows the chosen picture (TOTK_IOS_DRAWABLE_H)
         [weak boot];
-    }]];
+    };
+    /* A run started by a script skips the start screen, which would wait for a tap: devicectl ... --environment-variables
+       '{"TOTK_START_SCREEN":"0"}'. The Settings app's choices apply as they are (after PR #1174). */
+    const char *screen = getenv("TOTK_START_SCREEN");
+    if (screen && !strcmp(screen, "0")) start();
+    else [self.view addSubview:[[TOTKStartView alloc] initWithFrame:self.view.bounds onStart:start]];
 #endif
 }
 - (void)boot {
