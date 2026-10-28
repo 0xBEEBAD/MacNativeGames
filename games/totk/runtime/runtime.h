@@ -130,8 +130,13 @@ void runtime_vpool_probe(void);
 
 void runtime_memory_probe(void);
 
-void runtime_input_key(unsigned code,int down);
+void runtime_input_key(unsigned code,int down);   /* a window key: the player's layout (runtime/keyboard_map.h) */
+void runtime_input_mouse(int button,int down);    /* runtime/gamepad.m, mouse mode: a mouse button through the same layout */
 void runtime_input_clear(void);
+struct KeyMap;   /* runtime/keyboard_map.h */
+void runtime_keymap_get(struct KeyMap *out);       /* runtime/input.c: the keyboard and mouse layout in force */
+void runtime_keymap_set(const struct KeyMap *map); /* in force at once, saved in keyboard.txt (the settings panel) */
+void runtime_keymap_reset(void);                   /* the default layout, keyboard.txt removed */
 int runtime_handheld_mode(void);   /* TOTK_OPERATION_MODE=handheld (runtime/services.c) */
 void *runtime_input_override(const char *name);
 typedef struct { uint64_t buttons; int32_t lx,ly,rx,ry; int connected; } RuntimeGamepadState;
@@ -154,6 +159,15 @@ int runtime_gamepad_type_set(int type);     /* runtime/gamepad.m: the settings p
 int runtime_gamepad_type(int *detected);    /* runtime/gamepad.m, main thread: the picked type; *detected = auto's guess for the connected controller, -1 none */
 int runtime_setting_word(const char *name, char *word, size_t size);   /* runtime/gamepad.m: a one-word setting file next to controls.txt; 1 read, 0 none */
 void runtime_setting_save(const char *name, const char *word, const char *what);   /* runtime/gamepad.m: saves one; what names it in a failure line */
+void runtime_setting_remove(const char *name);   /* runtime/gamepad.m: back to the default (a settings panel reset) */
+/* runtime/gamepad.m, main thread: the controller layout (controller_map.h, CONTROLLER_BUTTONS entries each) in force;
+   set puts one in force and saves it in controls.txt, reset goes back to the default and removes the file. */
+void runtime_controller_map_get(uint16_t *map, uint8_t *modes);
+void runtime_controller_map_set(const uint16_t *map, const uint8_t *modes);
+void runtime_controller_map_reset(void);
+int runtime_mouse_sensitivity(void);          /* runtime/gamepad.m: mouse mode's sensitivity, 1-100 (50) */
+int runtime_mouse_sensitivity_locked(void);   /* TOTK_MOUSE_SENSITIVITY decides (the panel's slider greyed out) */
+void runtime_mouse_sensitivity_set(int value);   /* the settings panel's slider: at once, saved in mouse-sensitivity.txt */
 int runtime_mouse_set(int on);              /* runtime/gamepad.m: the settings panel's mouse mode, saved; returns it */
 int runtime_mouse_enabled(void);
 void runtime_mouse_set_hook(void (*hook)(void));   /* the window (frontend.m): mouse mode changed, on the main queue */

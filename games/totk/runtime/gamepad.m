@@ -113,15 +113,22 @@ static int setting_read(const char *name, char *word, size_t size, char *path, s
     return 1;
 }
 
-static void setting_write(const char *name, const char *word, const char *what) {
-    char path[4096], temp[4200];
-    if (!setting_path(name, path, sizeof path)) return;
+static void file_write(const char *path, const char *text, const char *what) {   /* whole or not at all */
+    char temp[4200];
     snprintf(temp, sizeof temp, "%s.tmp", path);
     FILE *f = fopen(temp, "w");
-    int ok = f && fprintf(f, "%s\n", word) > 0;
+    int ok = f && fprintf(f, "%s", text) >= 0;
     if (f && fclose(f)) ok = 0;
     if (ok && rename(temp, path)) ok = 0;
     if (!ok) { fprintf(stderr, "[totk-input] could not save the %s to %s; it holds until the game closes\n", what, path); unlink(temp); }
+}
+
+static void setting_write(const char *name, const char *word, const char *what) {
+    char path[4096], text[16384];
+    if (!setting_path(name, path, sizeof path)) return;
+    size_t n = strlen(word);
+    snprintf(text, sizeof text, "%s%s", word, n && word[n - 1] == '\n' ? "" : "\n");
+    file_write(path, text, what);
 }
 
 /* The same one-word files for the rest of the runtime: 1 with the file's text in word as written (the caller drops the
@@ -132,6 +139,36 @@ int runtime_setting_word(const char *name, char *word, size_t size) {
 }
 /* ... and saves one, as controller-type.txt is saved (the settings panel's controller rows). */
 void runtime_setting_save(const char *name, const char *word, const char *what) { setting_write(name, word, what); }
+/* ... or removes it: the default again (the settings panel's resets). */
+void runtime_setting_remove(const char *name) {
+    char path[4096];
+    if (setting_path(name, path, sizeof path)) unlink(path);
+}
+
+/* The settings panel's key bindings (main thread, as refresh_gamepads): the layout in force, a new one (saved in the
+   TOTK_CONTROLS file with only what differs from the default), or the default (the file removed). */
+void runtime_controller_map_get(uint16_t *map, uint8_t *modes) {
+    memcpy(map, controllerMap, sizeof controllerMap); memcpy(modes, controllerModes, sizeof controllerModes);
+}
+static void controller_map_changed(void) {
+    physicalPrev = 0;
+    memset(tapUntil, 0, sizeof tapUntil); memset(toggleOn, 0, sizeof toggleOn); memset(toggleMoved, 0, sizeof toggleMoved);
+    refresh_gamepads();
+}
+void runtime_controller_map_set(const uint16_t *map, const uint8_t *modes) {
+    memcpy(controllerMap, map, sizeof controllerMap); memcpy(controllerModes, modes, sizeof controllerModes);
+    controller_map_changed();
+    const char *path = getenv("TOTK_CONTROLS"); char text[8192];
+    if (path && *path && controller_map_format(controllerMap, controllerModes, text, sizeof text) > 0) file_write(path, text, "controller layout");
+    fprintf(stderr, "[totk-input] controller layout: changed in the settings panel\n");
+}
+void runtime_controller_map_reset(void) {
+    controller_map_default(controllerMap, controllerModes);
+    controller_map_changed();
+    const char *path = getenv("TOTK_CONTROLS");
+    if (path && *path) unlink(path);
+    fprintf(stderr, "[totk-input] controller layout: default (reset)\n");
+}
 
 /* Controller type (gamepad_layout.h GAMEPAD_TYPE_*), in the Mac settings panel, in controller-type.txt. */
 static _Atomic int controllerType = GAMEPAD_TYPE_AUTO;
@@ -355,13 +392,17 @@ static void hid_pad_start(void) {}
 
 /* ---- Mouse mode (Mac, the settings panel; in mouse.txt) ----
    The window (runtime/frontend.m) holds the pointer while mouse mode is on and the window has the keyboard, and sends
-   the mouse's buttons and movement here. Buttons are physical buttons 17-21 of the controller layout (controller_map.h:
-   left attack, right draw the bow with left to shoot, middle target), so controls.txt can change them. Movement goes to
+   the mouse's buttons and movement here. Buttons go to the keyboard and mouse layout (runtime/input.c, keyboard_map.h:
+   left attack, right draw the bow with left to shoot, middle lock on), which the settings panel's key bindings change;
+   they are also physical buttons 17-21 of the controller layout, for mouse lines in controls.txt. Movement goes to
    runtime/mouse_look.h, ticked every 10 ms by a timer while mouse mode is on: the right stick (the stronger of it and a
    controller's) and, unless TOTK_MOUSE_GYRO=0 or the game has no six-axis device (TOTK_GYRO=0), the gyro, which the
-   mouse then has to itself (runtime_motion_mouse). Settings: TOTK_MOUSE_SENSITIVITY 1-100 (50), TOTK_MOUSE_INVERT_Y=1,
+   mouse then has to itself (runtime_motion_mouse). Sensitivity 1-100 (50): the settings panel's slider, kept in
+   mouse-sensitivity.txt; TOTK_MOUSE_SENSITIVITY decides over both. Other settings: TOTK_MOUSE_INVERT_Y=1,
    TOTK_MOUSE_COUNTERWEIGHT, TOTK_MOUSE_DECAY, TOTK_MOUSE_MIN_DECAY 0-100 (20, 18, 6). */
 static _Atomic int mouseMode;
+static _Atomic int mouseSensitivity = 50;
+static int mouseSensitivityLocked;
 static unsigned mouseButtons;                  /* main thread; bit i = mouse button i (0 left, 1 right, 2 middle, 3, 4) */
 static MouseLook mouseLook;                    /* gamepadLock */
 static MouseLookSettings mouseSettings;        /* gamepadLock */
@@ -384,8 +425,9 @@ static void mouse_tick(void) {
 static void mouse_apply(int on) {   /* start or stop the ticks and the gyro takeover */
     if (on) {
         const char *g = getenv("TOTK_MOUSE_GYRO");
-        MouseLookSettings settings = mouse_look_settings(getenv("TOTK_MOUSE_SENSITIVITY"), getenv("TOTK_MOUSE_INVERT_Y"),
+        MouseLookSettings settings = mouse_look_settings(NULL, getenv("TOTK_MOUSE_INVERT_Y"),
                                                          getenv("TOTK_MOUSE_COUNTERWEIGHT"), getenv("TOTK_MOUSE_DECAY"), getenv("TOTK_MOUSE_MIN_DECAY"));
+        settings.sensitivity = atomic_load(&mouseSensitivity);
         int gyro = runtime_gyro_enabled() && !(g && !strcmp(g, "0"));
         pthread_mutex_lock(&gamepadLock);
         mouseSettings = settings; mouse_look_reset(&mouseLook); mouseRX = mouseRY = 0; mouseGyro = gyro;
@@ -422,6 +464,31 @@ static void load_mouse_mode(void) {
 int runtime_mouse_enabled(void) { return atomic_load(&mouseMode); }
 void runtime_mouse_set_hook(void (*hook)(void)) { mouseHook = hook; }
 
+static void load_mouse_sensitivity(void) {
+    int env = mouse_look_setting(getenv("TOTK_MOUSE_SENSITIVITY"), 1, 100, -1);
+    if (env > 0) { atomic_store(&mouseSensitivity, env); mouseSensitivityLocked = 1; return; }
+    char path[4096], word[16] = {0};
+    if (!setting_read("mouse-sensitivity.txt", word, sizeof word, path, sizeof path)) return;
+    word[strcspn(word, " \t\r\n")] = 0;
+    int value = mouse_look_setting(word, 1, 100, -1);
+    if (value < 0) { fprintf(stderr, "[totk-input] %s: not a sensitivity from 1 to 100; using 50\n", path); return; }
+    atomic_store(&mouseSensitivity, value);
+    fprintf(stderr, "[totk-input] mouse sensitivity: %d (%s)\n", value, path);
+}
+int runtime_mouse_sensitivity(void) { return atomic_load(&mouseSensitivity); }
+int runtime_mouse_sensitivity_locked(void) { return mouseSensitivityLocked; }
+/* The settings panel's slider: the camera follows the new value at once. */
+void runtime_mouse_sensitivity_set(int value) {
+    if (mouseSensitivityLocked) return;
+    value = value < 1 ? 1 : value > 100 ? 100 : value;
+    if (value == atomic_exchange(&mouseSensitivity, value)) return;
+    pthread_mutex_lock(&gamepadLock);
+    mouseSettings.sensitivity = value;
+    pthread_mutex_unlock(&gamepadLock);
+    char word[8]; snprintf(word, sizeof word, "%d", value);
+    setting_write("mouse-sensitivity.txt", word, "mouse sensitivity");
+}
+
 /* The settings panel (key 1, frontend.m). */
 int runtime_mouse_set(int on) {
     on = !!on;
@@ -445,6 +512,7 @@ void runtime_mouse_button(int button, int down) {   /* main thread */
     unsigned bit = 1u << button, next = down ? mouseButtons | bit : mouseButtons & ~bit;
     if (next == mouseButtons) return;
     mouseButtons = next;
+    runtime_input_mouse(button, down);
     refresh_gamepads();
 }
 
@@ -452,7 +520,10 @@ void runtime_mouse_release(void) {   /* main thread: the window let the pointer 
     pthread_mutex_lock(&gamepadLock);
     mouse_look_reset(&mouseLook); mouseRX = mouseRY = 0;
     pthread_mutex_unlock(&gamepadLock);
-    if (mouseButtons) { mouseButtons = 0; refresh_gamepads(); }
+    if (mouseButtons) {
+        for (int i = 0; i < CONTROLLER_MOUSE_BUTTONS; i++) if (mouseButtons >> i & 1) runtime_input_mouse(i, 0);
+        mouseButtons = 0; refresh_gamepads();
+    }
 }
 
 static void refresh_gamepads(void) {
@@ -592,6 +663,7 @@ void runtime_gamepad_start(void) {
     started = YES;
     load_controller_map();
     load_controller_type();
+    load_mouse_sensitivity();
     load_mouse_mode();
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     [center addObserverForName:GCControllerDidConnectNotification object:nil queue:NSOperationQueue.mainQueue

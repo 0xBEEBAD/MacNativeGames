@@ -157,6 +157,18 @@ static CVReturn vsync_callback(CVDisplayLinkRef link,const CVTimeStamp *now,cons
  (void)link;(void)now;(void)output;(void)flags;(void)out;(void)ctx;
  pthread_mutex_lock(&vsyncLock);for(unsigned i=0;i<vsyncCount;i++)hle_signal_system_event(vsyncEvents[i]);pthread_mutex_unlock(&vsyncLock);return kCVReturnSuccess;
 }
+/* 1 / 0: the modifier key e (a flag change) is down / up; -1: not one the layout takes (Command, Caps Lock, fn). Each side
+   has its own device bit; a flag change without them (a synthesized event) goes by the shared flag. */
+static int front_modifier_down(NSEvent *e){
+ NSEventModifierFlags f=e.modifierFlags,shared;unsigned long side,pair;
+ switch(e.keyCode){
+  case 56:shared=NSEventModifierFlagShift;side=0x2;pair=0x6;break;case 60:shared=NSEventModifierFlagShift;side=0x4;pair=0x6;break;
+  case 59:shared=NSEventModifierFlagControl;side=0x1;pair=0x2001;break;case 62:shared=NSEventModifierFlagControl;side=0x2000;pair=0x2001;break;
+  case 58:shared=NSEventModifierFlagOption;side=0x20;pair=0x60;break;case 61:shared=NSEventModifierFlagOption;side=0x40;pair=0x60;break;
+  default:return -1;}
+ if(!(f&shared))return 0;
+ return f&pair?!!(f&side):1;
+}
 @interface TOTKInputView:NSView
 @property(strong) NSTimer *cursorHideTimer;
 @property BOOL cursorAutoHideActive;
@@ -169,8 +181,9 @@ static CVReturn vsync_callback(CVDisplayLinkRef link,const CVTimeStamp *now,cons
    menu) do anything; releases still go through so nothing stays held. */
 -(void)keyDown:(NSEvent *)e{if(textEntryOpen)return;if(settingsOpen&&e.keyCode!=18){if(e.keyCode==53)settings_show(0);return;}runtime_input_key(e.keyCode,1);}
 -(void)keyUp:(NSEvent *)e{runtime_input_key(e.keyCode,0);}
--(void)flagsChanged:(NSEvent *)e{int shift=!!(e.modifierFlags&NSEventModifierFlagShift),option=!!(e.modifierFlags&NSEventModifierFlagOption);
- if(e.keyCode==56&&(!(settingsOpen||textEntryOpen)||!shift))runtime_input_key(56,shift);if(e.keyCode==58&&(!(settingsOpen||textEntryOpen)||!option))runtime_input_key(58,option);}
+/* Shift, Control and Option, left and right apart, are keys of the layout (keyboard_map.h); they come as flag changes.
+   While the settings panel or text entry is open only their releases go through. */
+-(void)flagsChanged:(NSEvent *)e{int down=front_modifier_down(e);if(down>=0&&(!(settingsOpen||textEntryOpen)||!down))runtime_input_key(e.keyCode,down);}
 /* The game has no mouse controls. In native full screen, keep the pointer out of the picture while idle, but show it again
    as soon as it moves; restore it when the window loses focus or leaves full screen. */
 -(void)hideCursorIfIdle:(NSTimer *)timer{
@@ -248,10 +261,7 @@ enum { FPS_GRAPH_SAMPLES = 61, FPS_GRAPH_WIDTH = 220, FPS_GRAPH_HEIGHT = 90 };
   if(!a.length)[a appendAttributedString:[[NSAttributedString alloc] initWithString:@"FPS --\n" attributes:@{NSFontAttributeName:mono,NSForegroundColorAttributeName:green}]];
   if(playtime)[a appendAttributedString:[[NSAttributedString alloc] initWithString:[playtime.text stringByAppendingString:@"\n"]
    attributes:@{NSFontAttributeName:mono,NSForegroundColorAttributeName:green}]];
-  /* The commit the app was built from (user 2026-10-25), last and grey: TOTK_SOURCE_COMMIT from the launcher. */
-  const char *commit=getenv("TOTK_SOURCE_COMMIT");
-  if(commit&&*commit)[a appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@(TOTK_UI("版本 %s\n","build %s\n")),commit]
-   attributes:@{NSFontAttributeName:mono,NSForegroundColorAttributeName:[NSColor colorWithCalibratedWhite:0.6 alpha:1]}]];
+  /* The version and commit are in the settings panel's bottom-left corner (user 2026-10-27), not here. */
   [a deleteCharactersInRange:NSMakeRange(a.length-1,1)];   // no empty line under the last one
   BOOL changed=![a isEqualToAttributedString:self.label.attributedStringValue];
   if(changed)self.label.attributedStringValue=a;

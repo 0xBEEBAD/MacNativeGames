@@ -47,7 +47,7 @@ int main(int argc,char **argv){@autoreleasepool{
  mode=0;
  hidPad=(HIDPadState){0};runtime_gamepad_clear();
  settings_controller_tick(pad(0),NO,YES,0);settings_controller_tick(pad(SETTINGS_CHORD),YES,YES,0.1);CHECK(settingsOpen&&textCapture==1);
- CHECK(settingsPanel.controllerTargets.count==settingsPanel.rows.count+2);
+ CHECK(settingsPanel.controllerTargets.count==settingsPanel.rows.count+(settingsPanel.page==SETTINGS_PAGE_DISPLAY?settingsPanel.displayButtons.count:0));   /* the display page: its buttons after the rows */
  /* Replace row setters with test-local values; changes must use each row's original control action. */
  __block int choice=0,toggle=0;
  TOTKSettingRow *r=settingsPanel.rows[0];r.choices=@[@"Off",@"30",@"60"];r.values=@[@0,@30,@60];r.get=^int{return choice;};r.set=^(int v){choice=v;};
@@ -59,11 +59,13 @@ int main(int argc,char **argv){@autoreleasepool{
  TOTKSettingRow *s=settingsPanel.rows[sw];s.get=^int{return toggle;};s.set=^(int v){toggle=v;};
  settingsPanel.controllerIndex=0;[settingsPanel controllerHighlight];
  [settingsPanel controllerPad:pad(1) time:0.2 active:YES];CHECK(choice==0); /* opening input must be released */
+ for(NSView *v in settingsPanel.controllerTargets)CHECK(v.layer.borderWidth==0);   /* nothing highlighted before the controller moves */
+ press(1ull<<14);CHECK(choice==0&&settingsPanel.controllerTargets[0].layer.borderWidth==2);   /* the first move only shows where it is */
  press(1ull<<14);CHECK(choice==30);press(1ull<<12);CHECK(choice==0);
  press(1ull<<15);CHECK(settingsPanel.controllerIndex!=1&&settingsPanel.controllerIndex>1);
  settingsPanel.controllerIndex=sw;press(1ull<<14);CHECK(toggle==1);press(1ull<<14);CHECK(toggle==1);press(1ull<<12);CHECK(toggle==0);
  for(int family=GAMEPAD_TYPE_XBOX;family<=GAMEPAD_TYPE_SWITCH;family++){
-  runtime_gamepad_type_set(family);settingsPanel.controllerIndex=sw;toggle=0;
+  runtime_gamepad_type_set(family);settingsPanel.controllerIndex=sw;toggle=0;g_settings_controller_active=YES;
   settingsPanel.rows[sw].get=^int{return toggle;};settingsPanel.rows[sw].set=^(int v){toggle=v;};
   press(family==GAMEPAD_TYPE_SWITCH?2:1);CHECK(toggle==1);
   press(family==GAMEPAD_TYPE_SWITCH?1:2);CHECK(!settingsOpen&&textCapture==2);
@@ -71,7 +73,7 @@ int main(int argc,char **argv){@autoreleasepool{
  }
  [settingsPanel controllerPad:pad(0) time:2 active:NO];[settingsPanel controllerPad:pad(1ull<<15) time:3 active:YES];CHECK(!settingsPanel.controllerArmed);
  [settingsPanel controllerPad:pad(0) time:4 active:YES];CHECK(settingsPanel.controllerArmed);
- settingsPanel.controllerIndex=0;[settingsPanel controllerPad:pad(1ull<<15) time:5 active:YES];NSInteger first=settingsPanel.controllerIndex;
+ g_settings_controller_active=YES;settingsPanel.controllerIndex=0;[settingsPanel controllerPad:pad(1ull<<15) time:5 active:YES];NSInteger first=settingsPanel.controllerIndex;
  [settingsPanel controllerPad:pad(1ull<<15) time:5.1 active:YES];CHECK(settingsPanel.controllerIndex==first);
  [settingsPanel controllerPad:pad(1ull<<15) time:5.5 active:YES];CHECK(settingsPanel.controllerIndex!=first);
  settings_show(0);textEntryOpen=1;settings_show(1);CHECK(!settingsOpen);
