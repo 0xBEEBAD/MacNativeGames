@@ -680,7 +680,7 @@ static int mac_key_code(GCKeyCode code) {
 static void attach_keyboard(GCKeyboard *keyboard) {
     if (!keyboard) return;
     const char *mode = getenv("TOTK_KEYBOARD");
-    if (mode && !strcmp(mode, "off")) return;
+    if (mode && (!strcmp(mode, "off") || !strcmp(mode, "0"))) return;   /* "0": the Settings switch (main.m), as touch_pad.m reads it */
     keyboardPad = keyboard;
     keyboard.keyboardInput.keyChangedHandler = ^(GCKeyboardInput *input, GCControllerButtonInput *key, GCKeyCode code, BOOL pressed) {
         (void)input; (void)key;
