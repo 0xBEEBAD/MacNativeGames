@@ -214,11 +214,10 @@ def exefs_matches(exefs, want):
 
 
 def identify_update(work, py, update, keys, logs):
-    """The version whose verified ExeFS the update carries, never chosen by the file name (build_app.py identify_update):
-    an ExeFS already extracted for a version is checked in place, else the update's is extracted once and compared."""
-    for version, expected in VERSIONS.items():
-        if exefs_matches(work / f'extracted/{version}/exefs', expected['exefs_sha256']):
-            return version
+    """The version whose verified ExeFS the update carries, never chosen by the file name (build_app.py identify_update).
+    The given update's ExeFS is always extracted and compared (a few seconds): an ExeFS another build left in the work
+    folder says nothing about this update, and trusting it made a 13.0.5 update build 13.0.2 (after PR #1138). An
+    extracted ExeFS that already matches the version found is kept."""
     staging = work / 'extracted/update-detection'
     if staging.exists():
         shutil.rmtree(staging)
@@ -229,6 +228,9 @@ def identify_update(work, py, update, keys, logs):
         raise BuildError(f'ExeFS main: SHA-256 {sha256(staging / "exefs/main")[:16]}... is neither 13.0.2 nor 13.0.5 '
                          '(is this a supported update, and the dump complete?)')
     target = work / f'extracted/{version}'
+    if exefs_matches(target / 'exefs', VERSIONS[version]['exefs_sha256']):   # this version was extracted before
+        shutil.rmtree(staging)
+        return version
     if (target / 'exefs').exists():
         shutil.rmtree(target / 'exefs')
     target.mkdir(parents=True, exist_ok=True)
