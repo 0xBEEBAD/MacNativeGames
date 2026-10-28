@@ -16,6 +16,38 @@ import build_aoc as build
 
 
 class BuildTests(unittest.TestCase):
+    def test_package_retains_license_and_patent_notices_without_build_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);build.package_notices(root)
+            for name in ('third_party/nxnative/LICENSE','runtime/third_party/libvpx/LICENSE',
+                         'runtime/third_party/libvpx/PATENTS','runtime/third_party/stb_vorbis/LICENSE',
+                         'runtime/third_party/macnativegames/LICENSE','THIRD_PARTY_NOTICES.md'):
+                self.assertEqual((root/name).read_bytes(),(GAME/name).read_bytes())
+            self.assertFalse((root/'third_party/nxnative/build_ipa_from_nsp.py').exists())
+            self.assertFalse((root/'prebuilt').exists())
+
+    @unittest.skipUnless(sys.platform=='darwin','native macOS launcher')
+    def test_launcher_keeps_disposable_state_outside_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp).resolve();app=root/'Test.app';contents=app/'Contents'
+            mac=contents/'MacOS';game=contents/'Resources/game'
+            mac.mkdir(parents=True);game.mkdir(parents=True)
+            binary=mac/'AgeOfCalamity'
+            subprocess.run(['clang','-arch','arm64','-mmacosx-version-min=26.0','-O2','-Wall','-Wextra','-Werror',
+                            str(GAME/'app/launcher.c'),'-o',str(binary)],check=True)
+            host=game/'dmhost';host.write_text('#!/bin/sh\nprintf "%s\\n" "$DM_SAVE" "$DM_TEMP" "$DM_ROOT"\nexit 23\n');host.chmod(0o755)
+            original={p.relative_to(app):p.read_bytes() for p in app.rglob('*') if p.is_file()}
+            profile=root/'profile';profile.mkdir()
+            result=subprocess.run([str(binary)],env=dict(os.environ,DM_AOC_PROFILE=str(profile)),capture_output=True)
+            self.assertEqual(result.returncode,23)
+            log,=profile.glob('session-*.log')
+            self.assertEqual(log.read_text().splitlines(),[str(profile/'save'),str(profile/'temp'),str(game)])
+            self.assertTrue((profile/'save').is_dir());self.assertTrue((profile/'temp').is_dir())
+            alias=root/'inside-alias';alias.symlink_to(game,target_is_directory=True)
+            result=subprocess.run([str(binary)],env=dict(os.environ,DM_AOC_PROFILE=str(alias)),capture_output=True,text=True)
+            self.assertEqual(result.returncode,1);self.assertIn('outside the signed app',result.stderr)
+            self.assertEqual({p.relative_to(app):p.read_bytes() for p in app.rglob('*') if p.is_file()},original)
+
     def test_tooling_checksums(self):
         build.verify_prebuilt()
 
@@ -185,6 +217,27 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(build.verify_libraries(libs,table)['folded_layer_geometry'],[key])
             value['gs_slice']['loc']=32;refl.write_text(json.dumps(value))
             with self.assertRaisesRegex(ValueError,'invalid folded geometry'):build.verify_libraries(libs,table)
+
+    def test_packaging_rejects_unresolved_shader_resources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);libs=root/'b-test';libs.mkdir();key='0123456789abcdef'
+            table=root/'map.tsv';table.write_text(f'gs_main.bin\t0\tgeometry\t{key}\n')
+            (libs/f'{key}_b.metallib').write_bytes(b'MTLBsynthetic')
+            for suffix in ('_bg0','_bg1','_bg2','_bg3','_bg4','_bgv'):
+                (libs/f'{key}{suffix}.metallib').write_bytes(b'MTLBsynthetic')
+            value={'chain':'test','dm_ctl':key,'stage':'gs',
+                   'bindings':[{'kind':'sbuf','msl_name':'gp_s0','reg':None}]}
+            refl=libs/f'{key}_b.json';refl.write_text(json.dumps(value))
+            with self.assertRaisesRegex(ValueError,'unresolved shader binding'):build.verify_libraries(libs,table)
+            value['bindings'][0]['reg']=0;refl.write_text(json.dumps(value))
+            self.assertEqual(build.verify_libraries(libs,table)['keys'],1)
+            for invalid in (-1,True,'0'):
+                value['bindings'][0]['reg']=invalid;refl.write_text(json.dumps(value))
+                with self.assertRaisesRegex(ValueError,'unresolved shader binding'):build.verify_libraries(libs,table)
+            value['bindings'][0]['kind']='unexpected';refl.write_text(json.dumps(value))
+            with self.assertRaisesRegex(ValueError,'unknown shader binding'):build.verify_libraries(libs,table)
+            value['bindings']=[];value['drv_unfillable']=['c0 outside table'];refl.write_text(json.dumps(value))
+            with self.assertRaisesRegex(ValueError,'unfillable driver reads'):build.verify_libraries(libs,table)
 
 
 if __name__ == '__main__':

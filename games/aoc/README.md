@@ -59,6 +59,10 @@ fresh-process reload checks. The session's `control.txt` accepts the host's
 button and screenshot commands. No live user profile is changed.
 `scripts/analyze_run.py SESSION --start SECONDS --end SECONDS` summarizes an
 explicit timing window, including percentile statistics and overlap caveats.
+The runner freezes the binary, rewritten modules and generated profile tables.
+`--host-from` selects a prior binary snapshot for a recorded regression run.
+For package validation, `DM_AOC_PROFILE=/existing/absolute/disposable-directory`
+selects separate writable state; paths inside the signed app are rejected.
 
 The default preserves the game's original 30 fps simulation. The inherited 60
 fps mode has not passed timing acceptance and is not offered. A sound-heap

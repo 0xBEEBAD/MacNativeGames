@@ -84,6 +84,19 @@ def verify_originals(build):
     return pins
 
 
+def package_notices(resources):
+    """Retain runtime copyright/license texts without bundling build tools."""
+    paths = [GAME / 'THIRD_PARTY_NOTICES.md', GAME / 'third_party/COPIES.md',
+             GAME / 'third_party/nxnative/LICENSE', GAME / 'runtime/gfx/nvn/include/nvn.h']
+    paths += [p for p in (GAME / 'third_party/licenses').rglob('*') if p.is_file()]
+    paths += [p for p in (GAME / 'runtime/third_party').rglob('*')
+              if p.is_file() and (p.name.startswith('LICENSE') or p.name in ('PATENTS', 'README.md'))]
+    for path in paths:
+        destination = resources / path.relative_to(GAME)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, destination)
+
+
 def package(source, build, output, language):
     """Package only after the source build succeeds. Never rewrite a patched binary."""
     if output.suffix != '.app':
@@ -130,6 +143,7 @@ def package(source, build, output, language):
         shutil.copytree(libraries, resources / 'shader-cache' / libraries.name)
         shutil.copy2(build / 'tools/dmhost', resources / 'dmhost')
         (resources / 'language.txt').write_text(language + '\n')
+        package_notices(resources)
         with (partial / 'Contents/Info.plist').open('wb') as stream:
             plistlib.dump({'CFBundleExecutable': 'AgeOfCalamity', 'CFBundleIdentifier': 'org.macnativegames.aoc',
                           'CFBundleName': APP_NAME, 'CFBundleDisplayName': APP_NAME,
@@ -220,6 +234,15 @@ def verify_libraries(libraries, shader_map):
         reflection = json.loads((libraries/f'{key}_b.json').read_text())
         if reflection.get('chain') != libraries.name.removeprefix('b-') or reflection.get('dm_ctl') != key:
             raise ValueError(f'stale shader reflection: {key}')
+        slot_kinds = {'cbuf', 'samp', 'samp_tex', 'tex', 'img', 'tbuf', 'sbuf',
+                      'ubo_ptr', 'sbuf_ubo', 'tex_ubo', 'samp_ubo', 'samp_id'}
+        for binding in reflection.get('bindings', []):
+            if binding.get('kind') not in slot_kinds | {'geometry', 'support', 'c1', 'drvcb', 'tex_c2a', 'samp_c2a'}:
+                raise ValueError(f'unknown shader binding: {key} {binding.get("msl_name")}')
+            if binding.get('kind') in slot_kinds and (type(binding.get('reg')) is not int or binding['reg'] < 0):
+                raise ValueError(f'unresolved shader binding: {key} {binding.get("msl_name")}')
+        if reflection.get('drv_unfillable'):
+            raise ValueError(f'unfillable driver reads: {key}')
         if reflection.get('stage') == 'gs' and reflection.get('gs_slice'):
             # Exact layer-only geometry lowering runs in the paired vertex
             # library; it has no standalone Metal geometry function/library.

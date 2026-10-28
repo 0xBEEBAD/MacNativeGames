@@ -24,6 +24,8 @@ original hashes. AoC adaptations are reviewed as source changes:
   no keys, LibHac or container extraction required in that mode.
 - Offline Metal compilation, compiler identity in shader/variant caches,
   placeholder rejection and complete-key checks before packaging.
+- Geometry-stage storage table at c0 byte 0x410, measured from both original
+  AoC geometry shaders; unresolved bindings rejected before packaging.
 - AoC app identity, external writable state, session logs and profile lock.
 
 Shader maps, facts, pairs, uniform proof tables and libraries are generated from

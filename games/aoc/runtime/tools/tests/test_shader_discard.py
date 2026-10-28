@@ -11,7 +11,8 @@ SOURCE = Path(__file__).resolve().parents[2] / 'gfx/tools/dmsh_build.py'
 tree = ast.parse(SOURCE.read_text())
 names = {'vs_tf', 'vs_discard', 'reflect'}
 scope = {'re': re, 'sys': sys, 'TF_SLOT': 8,
-         'SSBO': {'vs': 0x110, 'cs': 0x310, 'ps': 0x510},
+         'SSBO': next(ast.literal_eval(n.value) for n in tree.body
+                      if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'SSBO' for t in n.targets)),
          'dmsh_geometry': types.SimpleNamespace(HELPERS={})}
 exec(compile(ast.Module(body=[n for n in tree.body
                              if isinstance(n, ast.FunctionDef) and n.name in names],
@@ -19,6 +20,18 @@ exec(compile(ast.Module(body=[n for n in tree.body
 
 
 class Discard(unittest.TestCase):
+    def test_geometry_storage_uses_its_own_stage_table(self):
+        msl = '''struct spvDescriptorSetBuffer0 {
+    device Words* gp_s0 [[id(4)]];
+};'''
+        for offset, expected in [(0x410, 0), (0x500, 15), (0x510, None), (0x414, None), (0x110, None)]:
+            with self.subTest(offset=offset):
+                resources = {'sbufs': [{'binding': 40, 'cb_slot': 0,
+                                       'cb_offset': offset // 4, 'flags': 0}]}
+                binding, = scope['reflect']('test', 'gs', msl, resources)
+                self.assertEqual(binding['reg'], expected)
+                self.assertFalse(binding['rw'])
+
     def test_void_entry_keeps_stores_before_early_and_final_returns(self):
         source = '''struct main0_out { float4 gl_Position [[position]]; };
 vertex main0_out main0(uint vertex [[vertex_id]], device uint* result [[buffer(0)]])

@@ -40,7 +40,27 @@ int main(void) {
     // and writing them inside Resources would invalidate the bundle signature.
     const char *home = getenv("HOME");
     if (!home) return 1;
-    join(run, sizeof run, home, "Library/Application Support/Hyrule Warriors Age of Calamity");
+    const char *profile = getenv("DM_AOC_PROFILE");
+    if (profile && *profile) {
+        // Package validation uses an existing disposable directory. Resolve
+        // symlinks before rejecting a directory inside the signed app.
+        char bundle[PATH_MAX];
+        struct stat state_info;
+        if (*profile != '/' || !realpath(profile, run) || stat(run, &state_info) || !S_ISDIR(state_info.st_mode)) {
+            fprintf(stderr, "DM_AOC_PROFILE must name an existing absolute directory\n");
+            return 1;
+        }
+        memcpy(bundle, app, strlen(app) + 1);
+        char *contents = strrchr(bundle, '/'); if (!contents) return 1;
+        *contents = 0;
+        size_t len = strlen(bundle);
+        if (!strncmp(run, bundle, len) && (!run[len] || run[len] == '/')) {
+            fprintf(stderr, "profile must be outside the signed app\n");
+            return 1;
+        }
+    } else {
+        join(run, sizeof run, home, "Library/Application Support/Hyrule Warriors Age of Calamity");
+    }
     join(save, sizeof save, run, "save");
     join(temp, sizeof temp, run, "temp");
     make_dir(run); make_dir(save); make_dir(temp);
