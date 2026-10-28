@@ -200,4 +200,3 @@ Tears of the Kingdom; for Breath of the Wild replace `TOTK` with `BotW` and `tot
 - Tears of the Kingdom: base 1.0.0, optionally with the 1.1.2, 1.2.1 or 1.4.3 update. Breath of the Wild: 1.6.0 and 1.9.0. Other versions, compressed base games and personalized tickets are not supported.
 - No online features, no amiibo.
 - New shaders can stutter the first time; the cache and the [shared shader list](shader-list.md) reduce it.
-- In long sessions GPU memory grows. The Mac app stops the game when Metal allocates more than its budget: 30 % of the Mac's memory, never below 5,000 MB. `open --env TOTK_GPU_BUDGET_MB=<MB> "Tears of the Kingdom.app"` sets another budget.
