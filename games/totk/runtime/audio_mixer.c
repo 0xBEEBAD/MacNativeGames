@@ -102,7 +102,7 @@ static int get_active_channel_count(void) {
     if (cur == 2 || cur == 6) return cur;
     int det = detect_system_channels();
     atomic_store(&g_active_channels, det);
-    fprintf(stderr, "[totk-audio] Number of audio channel detected: %d\n", det); // TODO DEBUG A VIRER
+    fprintf(stderr, "[totk-audio] Number of audio channel detected: %d\n", det);
     return det;
 }
 
