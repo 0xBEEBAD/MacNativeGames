@@ -1,0 +1,8 @@
+# Locked binary-only shader tooling
+
+Two build-time tools from nxnative commit `062cd06e6fd79ec0bcd52d59f778fd6438994a2a`, byte-identical to the files there. `SHA256SUMS` covers the exact file set, and `scripts/build_mk8d.py` verifies it before staging. Neither tool is bundled in the generated game app, and neither holds translated game shaders.
+
+- `dmsh_xlate/`: the 12 required files of nxnative's `dm/gfx/tools/dmsh_xlate_bin`, the framework-dependent .NET 10 shader translator (Maxwell shader → SPIR-V), with its apphost, runtime and dependency metadata and DLLs. `dmsh_xlate.pdb` and the Humanizer satellite resource folders are left out. Its source is not duplicated in this target: the translator source and its shader-only Ryujinx subset are in the [pinned nxnative tree](https://github.com/seedds/nxnative/tree/062cd06e6fd79ec0bcd52d59f778fd6438994a2a/dm/gfx/tools/dmsh_xlate), and the Ryujinx modification record is [ryujinx-build.md](../../third_party/licenses/ryujinx-build.md).
+- `spirv_cross/`: nxnative's `dm/gfx/tools/spirv_cross_bin`, the SPIR-V → MSL converter built from SPIRV-Cross `vulkan-sdk-1.4.363.0` (commit `f11ba9f0b21ba8fc15153d50a2a1ae31ab1cf8f7`) by the `build.sh` beside it, with its license files.
+
+`runtime/gfx/tools/dmsh_chain.lock` pins the translator DLL fingerprints, the translator's embedded source hash (`--source-sha`) and the SPIRV-Cross fingerprint; this target's `dmsh_chain.py` takes the source hash from the lock instead of hashing a source checkout. Updating either binary needs new full SHA-256 sums, its source provenance, a new lock, a regenerated `runtime/gfx/nvn/dmsh_chain.h` (`dmsh_chain.py --header`) and a full private shader and host rebuild. No tool is downloaded or rebuilt implicitly.
