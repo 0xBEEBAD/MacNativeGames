@@ -1,22 +1,3 @@
-diff --git a/dm/games/0100152000022000/game.tsv b/dm/games/0100152000022000/game.tsv
-index 6f8dbf4..bf6574d 100644
---- a/dm/games/0100152000022000/game.tsv
-+++ b/dm/games/0100152000022000/game.tsv
-@@ -20,11 +20,11 @@ app_category	public.app-category.racing-games
- render_cond	on
- 
- # ---- Versions ----
--# both merged update copies are extracted; the base game's own build IDs are added when needed
--build	v1441792	4.0.0	main=2c336a9bcf79c3040ce506cdd391b578	subsdk0=d9de423efc1512328c3c05378c7cb031	sdk=ba520906609c503227871a314a94fb5f
-+# MacNativeGames games/mk8d: only update 4.0.1 (v1507328). The original modules are pinned in assets/expected-4.0.1.json; upstream's profile also registers 4.0.0 (v1441792).
-+# This copy carries no shader tables: each build splits them from its own 4.0.1 files (the build script's TARGET_TABLES), so the profile is always derived for v1507328
- build	v1507328	4.0.1	main=158c0c7399aabd7bf83795c2ef3484c7	subsdk0=d9de423efc1512328c3c05378c7cb031	sdk=ba520906609c503227871a314a94fb5f
- package	v1507328
--shader_versions	v1441792 v1507328
-+shader_versions	v1507328
- 
- # ---- Files ----
- # every module main imports from
 diff --git a/dm/gfx/nvn/dmsh_chain.h b/dm/gfx/nvn/dmsh_chain.h
 index 8552c74..f192084 100644
 --- a/dm/gfx/nvn/dmsh_chain.h

@@ -29,7 +29,8 @@ shader_versions	v1507328
 # ---- Files ----
 # every module main imports from
 modules	main subsdk0 sdk
-romfs_marker	UI/cmn/movie/StaffCredits.mp4
+# MacNativeGames games/mk8d: the extraction root, not a game file (nx_extract writes the image into a .partial folder and swaps it in whole); upstream names a RomFS file
+romfs_marker	.
 zip_store	.bfres:.bfstm:.bslnk:.mp4:.ptcl:.sarc:.szs:.webm:.metallib
 
 # ---- Memory ----
@@ -44,5 +45,6 @@ sys_resource	0x0
 # ---- Shader split ----
 # 29,650 shaders (12,529 vertex, 17,092 pixel, 28 compute, 1 geometry): BNSH in the courses' and objects' .bfsha / .bfres archives inside the .szs SARCs, the effects' .ptcl, the layouts,
 # agl's two BAHS sharcb and 37 in main; 18,747 variation pairs
-shader_groups	/MapObj/=mapobj /Course/=course /UI/=ui /Audio/=audio /Kart/=kart /Ghost/=ghost /Driver/=driver /RaceCommon/=racecommon /Common/=common /DriverTex/=drivertex /Trophy/=trophy /UI3D/=ui3d /Data/=data /DriverAnim/=driveranim /AI/=ai
+# MacNativeGames games/mk8d: one generic group for every RomFS shader (upstream groups them by RomFS top-level folder); main's shaders keep their own group
+shader_groups	/=archive
 shader_note	Mario Kart 8 Deluxe shaders

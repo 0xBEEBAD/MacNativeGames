@@ -1,5 +1,7 @@
 # Mario Kart 8 Deluxe (`0100152000022000`)
 
+> nxnative's game notes at commit `062cd06`, kept as its bring-up record. In MacNativeGames `games/mk8d` the profile registers 4.0.1 only, carries no shader tables, and uses a generic shader group and extraction marker instead of RomFS names (see `third_party/COPIES.md`); the two rows that named them are changed to match.
+
 Updates 4.0.0 (v1441792) and 4.0.1 (v1507328) over the base game, SDK 4.4.0, the oldest SDK until [Bayonetta 2](../01007960049A0000/README.md)'s 3.6.0. Nintendo's sead / agl / gsys engine with NintendoWare (G3d, Ui2d, Vfx, Atk) and Pia networking, on NVN. Modules `main`, `subsdk0` (the SDK's movie library: the menus' H.264 previews) and `sdk`. RomFS is mostly Yaz0-compressed SARC (`.szs`), BFRES models and BNTX textures, which the game reads itself. Plays on the iPhone (A20 Pro): 60 fps docked with about 6 ms of GPU time a frame, a 2.4 GB footprint with 3.7 GB of headroom, no audio underruns. Mii heads draw nothing (no firmware); see [Miis](#miis).
 
 The 4.0.1 build has the same `subsdk0` and `sdk` build IDs as 4.0.0 and a different `main` build ID. This profile has no build-specific function patches. [A 4.0.1 iPhone report](https://github.com/seedds/nxnative/issues/281) covers the title, menus and a complete three-lap Grand Prix race after the shared notification-wait fix. A second 4.0.1 build from current upstream, with Booster Course DLC and a derived profile, completed a full race on an iPhone 15 Pro Max (iOS 27.0.1) and on a Mac. The registered profile's combined shader tables and Mac build passed shader and pipeline prebuild checks; gameplay on a build made from this registered profile has not yet been tested. A build from the registered profile needs both update NSPs in the input folder.
@@ -14,7 +16,7 @@ Brought up on the Mac from 4.0.0: boot, the title with its demo race, the Mii pi
 | 4 GB layout: `mem_reserve 0x100000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | no virtual address memory: the game sets a 3.03 GB heap (pool − 64 MB) in the 3.25 GB heap region |
 | `sys_resource 0x0` | `game.tsv` | the NPDM declares 0 MB of system resource: `IsVirtualAddressMemoryEnabled` is false, as on Horizon |
 | `modules main subsdk0 sdk` | `game.tsv` | every module `main` imports from |
-| `shader_groups` (`/MapObj/`, `/Course/`, `/UI/`, `/Kart/`, `/Driver/`, …) | `game.tsv` | the shader split's groups; see [Files and shaders](#files-and-shaders) |
+| `shader_groups` (one generic group in this copy; upstream groups by RomFS top-level folder) | `game.tsv` | the shader split's groups; see [Files and shaders](#files-and-shaders) |
 
 ## Miis
 
@@ -30,7 +32,7 @@ The game builds Mii heads from the console's MiiModel system data, starting at b
 
 - **Resolved: SIGSEGV in `crypto::detail::CbcModeAes128Helper::DecryptBlocks` with a null destination** (`main+0x8737e8`, right after `aoc:` is mounted). The add-on content (0100152000023001: `contents.dat` and `version.txt`; the courses are in the update) is decrypted in `AocHeap`, a 0x3130-byte heap that also holds the mount cache. The host answered `QueryMountAddOnContentCacheSize` with 4 KB, and the 0x1400-byte decryption buffer then did not fit. On Horizon the cache is the RomFS's file table as `RomFsFileSystem::GetRequiredWorkingMemorySize` sizes it: both hash tables (4 bytes a bucket, the builder's bucket count) and all directory and file entries (0x18 / 0x20 bytes plus the name, padded to 4), 0x88 bytes for these two files. The host computes that from the folder it mounts (`romfs_work_size` in `hle_fs.c`); `rom` keeps its minimum answer, which is too small rather than too large.
 - **Resolved: every boot asked to pick a Mii again** (`DM_FS=1`: `UserSave:/userdata.dat` not found although the host save had it). The game mounts `CommonSave` with `MountDeviceSaveData` and `UserSave` with `MountSaveData(uid)` (`main+0x8b0c84`), two saves on Horizon; the host made device save data the account save (for Animal Crossing: New Horizons, which mounts only device save data), so both names shared one directory. At boot the save manager deletes `CommonSave:/userdata.dat` (`main+0x8b1910`, through its file device's `DeleteFile`, `main+0x633afc`; a probe there with `@*x1+8` shows the name) and commits, and in the shared directory that was the account save's own file. A game whose `main` imports `MountSaveData` too now gets its device save as `<DM_SAVE>_device`, a transaction of its own (`hle_fs.c`); of the games on hand only this one imports both.
-- `romfs_marker` is `UI/cmn/movie/StaffCredits.mp4`.
+- `romfs_marker` is the extraction root (`.`) in this copy; upstream names one RomFS file.
 
 ## Audio
 

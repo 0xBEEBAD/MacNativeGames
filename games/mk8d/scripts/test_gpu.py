@@ -15,8 +15,6 @@ args = parser.parse_args()
 work = args.work_dir.expanduser().resolve()
 if GAME.parents[1] == work or GAME.parents[1] in work.parents:
     parser.error('use a directory outside the checkout')
-if ' ' in str(work):
-    parser.error('use a directory without spaces: make splits paths at spaces')
 source = stage(work, work / 'dependencies/nuget')
 env = environment(work)
 tests = source / 'dm/gfx/tests'

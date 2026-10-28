@@ -151,7 +151,7 @@ def environment(work):
     env = dict(os.environ, DM_GAME=TITLE, TMPDIR=str(work / 'tmp'), NUGET_PACKAGES=str(work / 'cache/nuget'),
                DOTNET_CLI_HOME=str(work / 'cache/dotnet'), PYTHONDONTWRITEBYTECODE='1',
                DOTNET_CLI_TELEMETRY_OPTOUT='1', DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1', DOTNET_NOLOGO='1',
-               DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE='true', MACOSX_DEPLOYMENT_TARGET='26.0')
+               DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE='true', NuGetAudit='false', MACOSX_DEPLOYMENT_TARGET='26.0')   # NuGetAudit: MSBuild reads it from the environment; no vulnerability feed is queried
     for key in ('TMPDIR', 'NUGET_PACKAGES', 'DOTNET_CLI_HOME'):
         Path(env[key]).mkdir(parents=True, exist_ok=True)
     return env
@@ -174,8 +174,6 @@ def main():
     checkout = GAME.parents[1]
     if any(path == checkout or checkout in path.parents for path in (work, output)):
         parser.error('--work-dir and --output must be outside the checkout to keep game content out of Git')
-    if ' ' in str(work):
-        parser.error('--work-dir must not contain spaces: the host is built with make, which splits paths at spaces')
     if not args.inputs.expanduser().is_dir() or not args.keys.expanduser().is_file():
         parser.error('inputs folder and keys must exist')
     work.mkdir(parents=True, exist_ok=True)

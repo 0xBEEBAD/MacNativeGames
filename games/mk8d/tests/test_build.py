@@ -161,6 +161,13 @@ class BuildTests(unittest.TestCase):
         for name in ('pso_manifest.tsv', 'bf_want.tsv', 'shader_map.tsv.conflicts.tsv'):
             data = [line for line in (profile / name).read_text().splitlines() if line and not line.startswith('#')]
             self.assertFalse(any('/' in line for line in data), name)
+        rows = dict(line.split('\t', 1) for line in (profile / 'game.tsv').read_text().splitlines() if '\t' in line and not line.startswith('#'))
+        self.assertEqual(rows['romfs_marker'], '.')
+        self.assertEqual(rows['shader_groups'], '/=archive')
+
+    def test_build_environment_disables_nuget_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(build.environment(Path(tmp))['NuGetAudit'], 'false')
 
 
 if __name__ == '__main__':

@@ -101,7 +101,8 @@
     {
       "source": "dm/games/0100152000022000/README.md",
       "destination": "runtime/games/0100152000022000/README.md",
-      "sha256": "22561322a066064df9773127f55775d48868e0d93b1e91c6da6f4dd74f09b069"
+      "sha256": "22561322a066064df9773127f55775d48868e0d93b1e91c6da6f4dd74f09b069",
+      "modified": "described in third_party/COPIES.md"
     },
     {
       "source": "dm/games/0100152000022000/bf_want.tsv",
@@ -112,7 +113,7 @@
       "source": "dm/games/0100152000022000/game.tsv",
       "destination": "runtime/games/0100152000022000/game.tsv",
       "sha256": "6ac90e46418d2d6bbab4a77237a3c8cb385c9911819d9a9d171a699b011e07b8",
-      "modified": true
+      "modified": "described in third_party/COPIES.md"
     },
     {
       "source": "dm/games/0100152000022000/pso_manifest.tsv",
@@ -213,7 +214,7 @@
       "source": "dm/gfx/nvn/dmsh_chain.h",
       "destination": "runtime/gfx/nvn/dmsh_chain.h",
       "sha256": "65c6600d39474992d3dbda6a9471a579d8a254702885b96c30cb39de0d67a52c",
-      "modified": true
+      "modified": "local-changes.patch"
     },
     {
       "source": "dm/gfx/nvn/hle_nvn.c",
@@ -1029,7 +1030,7 @@
       "source": "dm/gfx/tools/dmsh_chain.py",
       "destination": "runtime/gfx/tools/dmsh_chain.py",
       "sha256": "935e839802c67158406d1d5a4990a05606a2d3cda858fcf0ef19b55387d07c1c",
-      "modified": true
+      "modified": "local-changes.patch"
     },
     {
       "source": "dm/gfx/tools/dmsh_dryrun.py",
@@ -3230,7 +3231,7 @@
       "source": "dm/third_party/ryujinx/README.md",
       "destination": "third_party/licenses/ryujinx-build.md",
       "sha256": "df011ae280a68e1776578aa19d39f3da6411e99cbc37d8d68c7af9a39a198170",
-      "modified": true
+      "modified": "local-changes.patch"
     },
     {
       "source": "dm/third_party/ryujinx/LICENSE.txt",
@@ -3251,7 +3252,7 @@
       "source": "scripts/build_ipa_from_nsp.py",
       "destination": "third_party/nxnative/build_ipa_from_nsp.py",
       "sha256": "874ee02a55005bc8cdbab8b7835b7d139940eeae187e125b9b3c3d6d4e469083",
-      "modified": true
+      "modified": "local-changes.patch"
     }
   ],
   "left_out_of_the_profile": [
