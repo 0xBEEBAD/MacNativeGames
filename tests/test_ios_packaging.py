@@ -84,9 +84,10 @@ class ShaderPack(unittest.TestCase):
 
 
 class FullHD(unittest.TestCase):
-    """Settings › Full HD (docked): off by default, Tears of the Kingdom only, with the 1600x900 scene (1.4.3 renders
-    960x540 on the phone otherwise), and no switch in Breath of the Wild's Settings pane (build_ipa.py)."""
-    def test_switch_off_by_default_and_docked_at_1600x900(self):
+    """Settings › Full HD (docked): off by default, for both games. Tears of the Kingdom renders its scene at 1600x900
+    (1.4.3 renders 960x540 on the phone otherwise); Breath of the Wild's docked branch renders 1920x1080 and its
+    Settings pane says so (build_ipa.py)."""
+    def test_switch_off_by_default_and_docked(self):
         import plistlib, re
         ios = TOOLS.parent
         specs = plistlib.loads((ios/'Settings.bundle/Root.plist').read_bytes())['PreferenceSpecifiers']
@@ -94,14 +95,18 @@ class FullHD(unittest.TestCase):
         self.assertEqual(len(switch), 1)
         self.assertIs(switch[0]['DefaultValue'], False)
         main = (ios/'Sources/main.m').read_text()
-        branch = re.search(r'#ifndef GAME_BOTW\n(.*?)#endif', main[main.index('TOTK_DOCKED') - 200:], re.S)
-        self.assertTrue(branch and 'TOTK_DOCKED' in branch.group(1))
-        for line in ('"TOTK_OPERATION_MODE","docked"', '"TOTK_IOS_DRAWABLE_H","1080"', '"TOTK_RENDER_RES","1600x900"'):
-            self.assertIn(line, branch.group(1))
+        block = re.search(r'if \(\[NSUserDefaults.standardUserDefaults boolForKey:@"TOTK_DOCKED"\]\) \{(.*?)\n    \} else', main, re.S)
+        self.assertTrue(block, 'the docked branch')
+        for line in ('"TOTK_OPERATION_MODE","docked"', '"TOTK_IOS_DRAWABLE_H","1080"'):
+            self.assertIn(line, block.group(1))
+        totk = re.search(r'#else\n(.*?)#endif', block.group(1), re.S)
+        self.assertTrue(totk and '"TOTK_RENDER_RES","1600x900"' in totk.group(1), 'Tears of the Kingdom keeps the 1600x900 scene')
+        self.assertNotIn('#ifndef GAME_BOTW', main[main.index('TOTK_DOCKED') - 300:main.index('TOTK_DOCKED')])
         build = (TOOLS/'build_ipa.py').read_text()
         self.assertIn("s.get('Key')=='TOTK_DOCKED'", build)
+        self.assertIn("specs[at-1]['FooterText']", build)
+        self.assertNotIn('del specs[at-1:at+1]', build)
         self.assertIn("'      - path: Gen/Settings.bundle'", build)
-
 
 if __name__ == '__main__':
     unittest.main()
