@@ -374,6 +374,10 @@ static void (*mouseHook)(void);                /* the window: mouse mode changed
 static void mouse_tick(void) {
     double gyro[3], acc[3]; int32_t rx, ry;
     pthread_mutex_lock(&gamepadLock);
+#ifndef GAME_BOTW
+    /* L held (keys or controller): the ability wheel is open and the mouse points at an ability (mouse_look.h) */
+    mouse_look_point(&mouseLook, (int)(((runtime_keyboard_buttons() | gamepadState.buttons) >> 6) & 1));
+#endif
     mouse_look_tick(&mouseLook, &mouseSettings, &rx, &ry, gyro, acc);
     mouseRX = rx; mouseRY = ry;
     int feed = mouseGyro;

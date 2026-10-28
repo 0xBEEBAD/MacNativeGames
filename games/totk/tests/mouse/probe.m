@@ -8,6 +8,8 @@ uint64_t runtime_now_ns(void) { return clockNow; }
 void runtime_feedback_attach(GCController *controller) { (void)controller; }
 void runtime_feedback_detach(GCController *controller) { (void)controller; }
 void runtime_feedback_quiet(void) {}
+static uint64_t keyboardButtons;   /* runtime/input.c: what the keys hold (the ability wheel: L) */
+uint64_t runtime_keyboard_buttons(void) { return keyboardButtons; }
 static int gyroOn = 1, motionMouse = -1, feeds, hookCalls;
 static double lastYaw, lastAcc;
 int runtime_gyro_enabled(void) { return gyroOn; }
@@ -23,7 +25,7 @@ static int file_says(const char *path, const char *text) {
 }
 static RuntimeGamepadState settle(void) { RuntimeGamepadState s; runtime_gamepad_read(&s); runtime_gamepad_read(&s); return s; }   /* past latched presses */
 static void spin(void) { [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]]; }
-enum { Y = 1 << 3, ZL = 1 << 8, ZR = 1 << 9 };
+enum { Y = 1 << 3, L = 1 << 6, ZL = 1 << 8, ZR = 1 << 9 };
 
 int main(int argc, char **argv) { @autoreleasepool {
     if (argc != 2) { fprintf(stderr, "usage: probe <empty folder>\n"); return 2; }
@@ -58,6 +60,12 @@ int main(int argc, char **argv) { @autoreleasepool {
     mouse_tick(); s = settle(); check(s.rx > 0 && s.rx < 16384 && feeds == 2, "it decays tick by tick, the gyro keeps sampling");
     runtime_mouse_button(0, 1); runtime_mouse_release(); mouse_tick(); s = settle();
     check(!s.buttons && !s.rx && !s.ry, "release (the window lost the pointer): buttons up, stick centred");
+    /* The ability wheel (L held, here from the keys): the mouse points and the stick stays there; L up, centred. */
+    keyboardButtons = L; mouse_tick(); runtime_mouse_move(10, 0); for (int i = 0; i < 30; i++) mouse_tick();
+    int fed = feeds; s = settle();
+    check(abs(s.rx - 16384) <= 1 && !s.ry && lastYaw == 0, "L held: 10 points right stays at half right, no gyro turn");
+    runtime_mouse_move(0, -20); mouse_tick(); s = settle(); check(s.ry > 20000 && s.rx > 0 && s.rx < s.ry, "then up: up and a little right");
+    keyboardButtons = 0; mouse_tick(); s = settle(); check(!s.rx && !s.ry && feeds > fed, "L let go: centred at once");
 
     check(runtime_mouse_set(0) == 0 && file_says(saved, "off\n") && motionMouse == 0, "settings: off, saved, the gyro back to the controller");
     spin(); check(hookCalls == 2, "the window is told again (to free the pointer)");
