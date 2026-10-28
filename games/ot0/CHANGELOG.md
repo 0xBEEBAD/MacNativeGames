@@ -105,3 +105,7 @@ Verified: the 1.0.4 app started the game from its own folder, loaded a RomFS mod
 
 
 Verified: from an empty work folder, a signed 1.0.4 app in 2 minutes on an M5 Max, and 1.0.3 built next to it in the same work folder; both apps' rewritten modules and RomFS match the pinned hashes. A second run reuses every finished step (about 20 seconds), a rewriter file cut short is noticed and that module rewritten, and paths with `:` or `$`, an exFAT output folder, a work folder without room for the RomFS and a smaller separate output volume are refused before any work.
+
+### 2026-10-28: no GPU memory budget by default
+
+- **The budget is off unless `TOTK_GPU_BUDGET_MB` is set,** as in `games/totk` since `5ee33ea`, copied from there. Without the variable the runtime stopped the game once Metal had allocated more than 40 % of the Mac's memory: 25.6 GB on a 64 GB Mac, never reached here, but about 6.4 GB on a 16 GB Mac, the kind of line that stopped normal play in Tears of the Kingdom (#72, #614, #616, #1143). The variable stays as a diagnostic that stops the game with the residency sites.
