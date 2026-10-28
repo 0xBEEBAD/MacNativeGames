@@ -303,10 +303,11 @@ static NSPoint g_settings_at = {-1, -1};
 enum { SETTINGS_W = 520, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 54, SETTINGS_BOTTOM = 86, SETTINGS_POP_W = 260 };
 -(instancetype)init{
  NSArray<TOTKSettingRow *> *rows=settings_rows();
- /* The rows close up (down to 24 pt, 2 pt apart: a 26 pt menu then meets the next one's edge) when the panel would not fit the window (21:9 or 32:9 on a laptop
-    screen), so its title, close button and first rows stay in view. */
+ /* The rows close up (down to 22 pt, 2 pt apart: a 26 pt menu's frame then reaches 2 pt past its row, into the gap, while its
+    drawn bezel stays inside) when the panel would not fit the window (21:9 or 32:9 on a laptop screen: 1728x486 points on a
+    16-inch MacBook Pro holds fourteen rows at 22 pt, not at 24), so it stays whole in view. */
  CGFloat n=rows.count,rowH=SETTINGS_ROW_H,gap=SETTINGS_GAP,room=window?window.contentView.bounds.size.height-8:CGFLOAT_MAX;
- if(n&&SETTINGS_TOP+n*(rowH+gap)-gap+SETTINGS_BOTTOM>room){gap=2;rowH=fmax(24,floor((room-SETTINGS_TOP-SETTINGS_BOTTOM+gap)/n-gap));}
+ if(n&&SETTINGS_TOP+n*(rowH+gap)-gap+SETTINGS_BOTTOM>room){gap=2;rowH=fmax(22,floor((room-SETTINGS_TOP-SETTINGS_BOTTOM+gap)/n-gap));}
  CGFloat h=SETTINGS_TOP+n*(rowH+gap)-gap+SETTINGS_BOTTOM;
  if(!(self=[super initWithFrame:NSMakeRect(0,0,SETTINGS_W,h)]))return nil;
  self.rows=rows;self.controllerTargets=[NSMutableArray array];self.controllerIndex=0;self.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
