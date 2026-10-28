@@ -15,6 +15,9 @@ typedef struct {
     int active, display_active, target;
     AocShaderStats shaders;
 } AocStats;
+// Collection is off initially. Enabling/disabling clears old timing samples.
+void aoc_stats_enable(int enabled);
+int aoc_stats_enabled(void);
 void aoc_stats_frame(uint64_t now_ns, double gpu_ms, int target);
 void aoc_stats_display(double presented_seconds, uint64_t now_ns);
 void aoc_stats_resources(AocShaderStats shaders);

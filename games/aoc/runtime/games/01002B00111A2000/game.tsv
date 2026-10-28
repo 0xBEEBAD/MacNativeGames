@@ -45,7 +45,7 @@ tex_flush_upload	on
 # ---- Presentation ----
 # Original simulation is 30 fps. The version-gated stubs coordinate the KIDS
 # clock, battle float-fps and event/device rate. Settings / DM_FPS_TARGET select
-# 30, 60 or 120; zero keeps the original mode. Dynamic stepping uses elapsed
+# 30 or 60; zero keeps the original mode. Dynamic stepping uses elapsed
 # post-wait task ticks, with a 100 ms ceiling across loads or focus changes.
 fps_target	0
 # AoC's updates are independent of presentation. Do not use the inherited

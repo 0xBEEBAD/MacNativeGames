@@ -4,7 +4,7 @@
 #include "../runtime/host/front_shortcuts.h"
 #include <stdio.h>
 #include <string.h>
-static DmMacSettings state = {.show_hints = 1, .dynamic_fps=1, .stats_mode=2, .frame_graph=1, .screen_fps=120, .output_width = 3840, .output_height = 2160};
+static DmMacSettings state = {.show_hints = 1, .dynamic_fps=1, .screen_fps=120, .output_width = 3840, .output_height = 2160};
 static NSView *find(NSView *view, NSString *identifier) {
     if ([view.identifier isEqualToString:identifier]) return view;
     for (NSView *child in view.subviews) { NSView *result = find(child, identifier); if (result) return result; }
@@ -48,6 +48,7 @@ int main(int argc, const char **argv) { @autoreleasepool {
     if (test) {
         [panel.window.contentView layoutSubtreeIfNeeded];
         DmMacSettings original=state; DmMacSetting key; NSInteger value;
+        CHECK("diagnostic panes start hidden",performance.hidden && state.stats_mode==0 && state.frame_graph==0);
         CHECK("F1 opens settings",dm_mac_shortcut(122,state,&key,&value)==DmShortcutSettings);
         const unsigned short gameplayKeys[]={13,0,1,2,38,40,32,34,12,14,6,8,3,5,36,48,49,123,124,125,126};
         for(unsigned i=0;i<sizeof(gameplayKeys)/sizeof(gameplayKeys[0]);i++)
@@ -65,11 +66,11 @@ int main(int argc, const char **argv) { @autoreleasepool {
         state=original;
         const unsigned short codes[]={18,20,21,23,22,26};
         const DmMacSetting settings[]={DmSettingHints,DmSettingOutput,DmSettingDynamicFps,DmSettingStats,DmSettingFaceLayout,DmSettingFrameGraph};
-        const NSInteger values[]={0,1,0,0,1,0};
+        const NSInteger values[]={0,1,0,1,1,1};
         for(unsigned i=0;i<sizeof(codes)/sizeof(codes[0]);i++) {
             CHECK("number key maps to correct action",dm_mac_shortcut(codes[i],state,&key,&value)==DmShortcutChange && key==settings[i] && value==values[i]);
         }
-        state=original;[hud refresh];
+        state=original;state.stats_mode=2;state.frame_graph=1;[hud refresh];[performance refresh];
         [parent setContentSize:NSMakeSize(640,360)];[hud refresh];[performance refresh];
         CHECK("shortcut HUD fits minimum window",NSContainsRect(parent.contentView.bounds,hud.frame));
         CHECK("shortcut text fits its HUD",NSContainsRect(hud.bounds,find(hud,@"shortcut-values").frame));

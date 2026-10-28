@@ -13,6 +13,13 @@ static int checks;
 static float value(unsigned off){float f;memcpy(&f,page+off,4);return f;}
 int main(void){
     uint64_t now=1000000000ull;
+    CHECK(!aoc_stats_enabled());
+    aoc_stats_frame(now,4,60);aoc_stats_frame(now+16666667,4,60);
+    aoc_stats_display(1,now);aoc_stats_display(2,now+1000000000ull);
+    aoc_stats_resources((AocShaderStats){.inventory=123});
+    AocStats disabled=aoc_stats_snapshot(now+20000000);
+    CHECK(!disabled.active && !disabled.display_active && disabled.samples==0 && disabled.shaders.inventory==0);
+    aoc_stats_enable(1);CHECK(aoc_stats_enabled());
     CHECK(aoc_stats_snapshot(now).samples==0);
     for(unsigned i=0;i<=120;i++) aoc_stats_frame(now+i*8333333ull,4,120);
     for(unsigned i=0;i<=60;i++) aoc_stats_display(1+i/60.0,now+i*16666666ull);
@@ -29,6 +36,12 @@ int main(void){
     CHECK(!aoc_stats_snapshot(now+3000000000ull).display_active);
     for(unsigned i=121;i<=500;i++) aoc_stats_frame(now+i*8333333ull,3,120);
     CHECK(aoc_stats_snapshot(now+500*8333333ull).samples==AOC_STATS_SAMPLES);
+    aoc_stats_enable(0);CHECK(!aoc_stats_enabled());
+    CHECK(aoc_stats_snapshot(now).samples==0);
+    aoc_stats_enable(1);aoc_stats_frame(now,1,60);
+    CHECK(aoc_stats_snapshot(now).samples==0); // a fresh window has no pre-disable interval
+    aoc_stats_frame(now+16666667,1,60);CHECK(aoc_stats_snapshot(now+16666667).samples==1);
+    aoc_stats_enable(1);CHECK(aoc_stats_snapshot(now+16666667).samples==1); // idempotent refresh
     unsetenv("DM_FPS_TARGET");unsetenv("DM_DYNAMIC_FPS");
     aoc_timing_apply(0);CHECK(value(0)==0 && aoc_timing_dynamic());
     for(int i=0;i<3;i++) {int t=(int[]){0,30,60}[i];CHECK(aoc_timing_valid(t));aoc_timing_set(t,1);CHECK(value(0)==t && aoc_timing_target()==t);}

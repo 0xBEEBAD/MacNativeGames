@@ -131,6 +131,22 @@ imported prewarm objects and load/render-pipeline errors. Prewarm imports are
 not a count of shaders actually drawn. Headless runs have no display FPS.
 Shortcut hints remain independently configurable.
 
+Stats and the frame graph default to **Off**. Stats-pane timing/display sample
+collection is disabled while stats are off. Key 5 or Settings enables stats;
+key 7 enables the graph. Explicit choices are saved in `controller-layout.txt`. Environment
+overrides `DM_AOC_STATS=0|1|2` (Off/FPS/Full) and `DM_AOC_FRAME_GRAPH=0|1` take
+precedence over saved preferences. Disabling/re-enabling collection starts a
+fresh sample window. Existing explicit saved preferences are retained.
+
+The frame timer measures time between game presents, not simulation correctness;
+actual display FPS comes from drawable presentation callbacks. Shader counters
+describe host library/pipeline activity that the game cannot expose through the
+Metal HUD. They are not a count of shaders used by a frame. Detailed task/scene
+clock logs and periodic renderer summaries require `DM_BOOTPROF=1`; per-frame
+call dumps require `DM_NVN_FRAMES=N` or `DM_NVN_TSV=PATH`, and long-frame logging
+requires `DM_LONGFRAME=1`. The memory watchdog remains active independently of
+diagnostic logging.
+
 For diagnostics, add `--fps 60` to `run_aoc.py`; `--fixed-step`
 disables dynamic stepping. `control.txt` also accepts `fps 0|30|60` and
 `dynamicfps on|off` for live changes. Direct launches support `DM_FPS_TARGET`
@@ -144,14 +160,44 @@ its underlying hardware/work-buffer discrepancy remains unresolved.
 ## Tests
 
 ```sh
-# Optional instruction-level timing checks: pip install unicorn
+# From the repository root (the shared CI suite):
+python3 -m unittest discover -s tests -v
+# AoC checks, including native ARM64 timing execution on Apple silicon:
 make -C games/aoc test PYTHON=/path/to/aoc-python/bin/python
+make -C games/aoc test-ui PYTHON=/path/to/aoc-python/bin/python WORK=/path/to/private-ui-tests
 make -C games/aoc test-gpu PYTHON=/path/to/aoc-python/bin/python WORK=/path/to/private-probes
 ```
 
 The tests use synthetic inputs or standalone GPU probes; they do not replace
 gameplay testing. This repository contains no game files, keys, saves,
 screenshots or translated game shaders/libraries.
+
+The timing tests statically link the rewriter's emitted instructions against
+synthetic objects and execute directly on Apple silicon. Only data-page
+relocations and exit branches are adapted to the test executable. Native
+counter reads and arithmetic are unchanged. They require no CPU emulator,
+executable-memory allocation, or game binaries, and skip on other architectures.
+
+## Platform validation
+
+- **macOS / Apple M5, game 1.3.0 (v327680):** signed app built; first-mission
+  gameplay played with audio, keyboard and DualSense. Smooth 60 fps gameplay
+  was observed, but the Impa tower cutscene has the timing failure described
+  above. Later missions, full rendering acceptance and save/reload acceptance
+  remain incomplete. The compliance changes are checked with native probes,
+  settings tests and a host rebuild; they do not constitute another playthrough.
+- **iOS/iPadOS:** no full app build or device playtest. The copied iOS tools lack
+  this target's `runtime/ios/Sources` and `runtime/ios/project.yml`; the public
+  AoC builder targets macOS. Shared-source SDK compile checks are separate from
+  a linked, packaged or playable iOS app. The stats/timing C sources and NVN C/
+  Objective-C sources compile-check against the iPhoneOS 27 SDK for ARM64 with
+  an iOS 26 deployment target; inherited SDK/Objective-C warnings remain. No iOS
+  compatibility is claimed.
+
+The shared root test suite last ran 460 tests successfully (one skipped).
+AoC tests and Metal probes must be reported separately from those results and
+from gameplay observations. Keep the initial PR marked experimental/draft;
+Original 30 is the default, 60 is opt-in, and 120 is disabled.
 
 ## Layout
 

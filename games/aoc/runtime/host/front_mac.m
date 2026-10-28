@@ -129,7 +129,7 @@ static int g_start_fullscreen, g_output_preset, g_show_hints = 1;
 static DmSettingsPanel *g_settings_panel;
 static DmShortcutHUD *g_shortcut_hud;
 static DmPerformanceHUD *g_performance_hud;
-static int g_stats_mode=2, g_frame_graph=1;
+static int g_stats_mode, g_frame_graph; // diagnostics opt in; saved settings/env can enable
 static void settings_changed(DmMacSetting setting, NSInteger value);
 static void settings_refresh(void);
 static NSString *g_pad_settings_path;
@@ -157,6 +157,7 @@ static void pad_settings_load(void) {
     g_face_layout = DM_FACE_AUTO;
     g_swap_ab = 0;
     g_start_fullscreen = 0; g_output_preset = 0; g_show_hints = 1;
+    g_stats_mode = g_frame_graph = 0;
     const char *e;
     int fps=aoc_timing_target(), dynamic=aoc_timing_dynamic();
     NSString *text = g_pad_settings_path ? [NSString stringWithContentsOfFile:g_pad_settings_path encoding:NSUTF8StringEncoding error:nil] : nil;
@@ -181,6 +182,11 @@ static void pad_settings_load(void) {
     // Explicit diagnostics override saved preferences, including invalid-value fallback.
     if(getenv("DM_FPS_TARGET")) fps=aoc_timing_target();
     if(getenv("DM_DYNAMIC_FPS")) dynamic=aoc_timing_dynamic();
+    e=getenv("DM_AOC_STATS");
+    if(e) g_stats_mode=e[0]>='0' && e[0]<='2' && !e[1] ? e[0]-'0' : 0;
+    e=getenv("DM_AOC_FRAME_GRAPH");
+    if(e) g_frame_graph=!strcmp(e,"1");
+    aoc_stats_enable(g_stats_mode!=0);
     aoc_timing_set(fps,dynamic);
     e = getenv("DM_PAD_LAYOUT");
     if (e && !strcmp(e, "auto")) g_face_layout = DM_FACE_AUTO;
@@ -389,7 +395,9 @@ static void settings_changed(DmMacSetting setting, NSInteger value) {
     switch (setting) {
         case DmSettingFpsTarget: aoc_timing_set((int)value,aoc_timing_dynamic()); break;
         case DmSettingDynamicFps: aoc_timing_set(aoc_timing_target(),value!=0); break;
-        case DmSettingStats: if(value>=0 && value<=2) g_stats_mode=(int)value; break;
+        case DmSettingStats:
+            if(value>=0 && value<=2) { g_stats_mode=(int)value; aoc_stats_enable(g_stats_mode!=0); }
+            break;
         case DmSettingFrameGraph: g_frame_graph=value!=0; break;
         case DmSettingFaceLayout: if (value >= 0 && value < 3) g_face_layout = (int)value; break;
         case DmSettingSwapAB: g_swap_ab = value != 0; break;

@@ -8294,7 +8294,7 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
     uint64_t pn = ticket;   // Record the present time by the game's present sequence number (ticket number): hle's present statistics are taken by "the game's nth present"; in the display link path the actual present count != the game's present count (old frames get merged and dropped)
     [dr addPresentedHandler:^(id<MTLDrawable> d) {   // Actual presentation time (the time this frame is really put on screen, CACurrentMediaTime base)
         CFTimeInterval tt = d.presentedTime;
-        aoc_stats_display(tt, clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+        if (aoc_stats_enabled()) aoc_stats_display(tt, clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
         g_pres[pn % PRING] = (pres_ent){pn, tt > 0 ? tt : -1};
     }];
     // Each frame is displayed for at least one present period: when the GPU completion time jitters around a 120 Hz refresh boundary, the paired "25 ms + 8.33 ms" stutter no longer appears
@@ -8494,7 +8494,7 @@ void mtl_link_pause(int on);
 void mtl_present_discard(int on) { atomic_store(&g_present_discard, on != 0); if (on) present_drop_for_suspend(); }
 static uint64_t present_enqueue(const tex_t *t, double period, const int crop[4], uint64_t ev_val);
 uint64_t mtl_present(const tex_t *t, double period, const int crop[4]) {
-    aoc_stats_resources((AocShaderStats){
+    if (aoc_stats_enabled()) aoc_stats_resources((AocShaderStats){
         .inventory=g_shmap.count, .libraries=g_shcache.count,
         .render_pipelines=g_pso.n, .compute_pipelines=g_cps.n,
         .library_loads=g_bp_lib_n, .pipeline_builds=g_bp_pso_n,
