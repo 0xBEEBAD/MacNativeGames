@@ -7,7 +7,7 @@ import re
 import unittest
 
 from tools.builder.games import GAMES
-from tools.builder.start_options import ENV, FILE, OPTIONS, PICTURE_WORDS
+from tools.builder.start_options import ENV, FILE, HOLD_ENV, OPTIONS, PANEL, PICTURE_WORDS
 
 REPO = Path(__file__).resolve().parents[1]
 NVN = REPO / 'games/totk/third_party/d2r_gfx/gfx/nvn'
@@ -19,50 +19,43 @@ def source(path):
 
 
 class Drift(unittest.TestCase):
-    def test_interpolation_words_are_the_parsers(self):
-        parser = source(NVN / 'totk_mfx.m')
-        words = {v['TOTK_MFX'] for (o, _), v in ENV.items() if o == 'interpolation'}
-        self.assertEqual(words, {'interp30', 'interp', 'interpmax'})
-        for word in words:
-            self.assertIn(f'!strcmp(e, "{word}")', parser)
+    def test_the_panels_files_and_words(self):
+        """The window writes the settings panel's own files (after PR #1184), and only words its restore takes:
+        settings_panel.h settings_restore_begin reads graphics-frame.txt interp-<MFX_*>, graphics-output.txt an
+        OUTPUT_MODE_* number, graphics-taa.txt 0 / 1 and graphics-aspect.txt a ratio in 0.5..8."""
+        panel = source(RUNTIME / 'settings_panel.h')
+        restore = panel[panel.index('static void settings_restore_begin'):]
+        restore = restore[:restore.index('\n}\n')]
+        for name, _ in PANEL.values():
+            self.assertIn(f'"{name}"', restore)
+        self.assertIn('"interp-%d %c"', restore)
+        modes = re.search(r'enum \{ MFX_OFF, (.*?) \}', source(NVN / 'totk_mfx_mode.h'))[1].split(', ')
+        number = {name: i + 1 for i, name in enumerate(modes)}
+        self.assertEqual({c: w for c, w in PANEL['interpolation'][1].items()},
+                         {'interp30': f'interp-{number["MFX_30"]}', 'interp': f'interp-{number["MFX_50"]}',
+                          'interpmax': f'interp-{number["MFX_MAX"]}'})
+        outputs = re.search(r'enum \{ (OUTPUT_MODE_OFF.*?) \}', source(RUNTIME / 'runtime.h'))[1].split(', ')
+        self.assertEqual(PANEL['picture'][1], {'metalfx': str(outputs.index('OUTPUT_MODE_METALFX')),
+                                               'native-2k': str(outputs.index('OUTPUT_MODE_NATIVE'))})
+        self.assertIn('(v==0||v==1))taa_set(v)', restore.replace(' ', ''))
+        self.assertIn('ratio>=0.5f&&ratio<=8', restore.replace(' ', ''))
+        self.assertAlmostEqual(float(PANEL['aspect'][1]['21:9']), 21 / 9, places=6)
 
-    def test_on_switches_read_as_not_zero(self):
-        for path, name in ((NVN / 'totk_mfx_up.m', 'TOTK_MFX_UPSCALE'), (NVN / 'totk_mfx_up.m', 'TOTK_MFX_OUTPUT'),
-                           (NVN / 'totk_taa.m', 'TOTK_TAA')):
-            with self.subTest(name=name):
-                text = source(path)
-                at = text.index(f'getenv("{name}")')
-                self.assertRegex(text[at:at + 1000], r'strcmp\(e, "0"\)')     # anything but "0" is on: we pass "1"
+    def test_play_passes_only_what_the_panel_lacks(self):
+        self.assertEqual(ENV, {('ground', '16'): {'TOTK_ANISO': '16'}})
+        self.assertEqual({o.id for v in OPTIONS.values() for o in v if o.how != FILE}, {'ground'})
+        self.assertIn('if (!e || !*e || !strcmp(e, "0")) v = MFX_OFF;', source(NVN / 'totk_mfx.m'))   # the held start
+        self.assertEqual(HOLD_ENV, {'interpolation': {'TOTK_MFX': '0'}})
 
     def test_anisotropy_is_clamped_to_16(self):
         self.assertIn('aniso > 16 ? 16', source(NVN / 'nvn_mtl.m'))
         self.assertEqual(ENV[('ground', '16')], {'TOTK_ANISO': '16'})
 
-    def test_aspect_values_parse(self):
-        """Every TOTK_ASPECT value is a <w>:<h> / <w>x<h> ratio between 0.5 and 8: the rule aspect_math.h's
-        aspect_parse applies (read here, so a changed rule fails too); anything else stops the game. Upstream dropped
-        "display" (fitting the window) on 2026-10-25, and the Settings tab with it; a saved "display" reads as auto."""
-        parser = source(RUNTIME / 'aspect_math.h')
-        parse = parser[parser.index('static inline double aspect_parse'):]
-        parse = parse[:parse.index('\n}\n')]
-        self.assertNotIn('"display"', parse)
-        for piece in ('sscanf(e, "%lf:%lf%c"', 'sscanf(e, "%lfx%lf%c"',
-                      'a >= 0.5 && a <= 8'):
-            self.assertIn(piece, parse)
-        values = {v['TOTK_ASPECT'] for v in ENV.values() if 'TOTK_ASPECT' in v}
-        self.assertTrue(values)
-        for value in values:
-            with self.subTest(value=value):
-                ratio = re.fullmatch(r'(\d+(?:\.\d+)?)[:x](\d+(?:\.\d+)?)', value)
-                self.assertTrue(ratio and float(ratio[2]) > 0
-                                and 0.5 <= float(ratio[1]) / float(ratio[2]) <= 8)
-        self.assertNotIn('aspect', {o.id for o in OPTIONS['botw190']})  # offered on 1.4.3 only
-
     def test_1_4_3_picture_words_are_the_games(self):
         code = source(RUNTIME / 'game_patches_v143.c')
         restore = code[code.index('static void picture_mode_restore'):]
         restore = restore[:restore.index('\n}\n')]
-        for word in set(PICTURE_WORDS) | {c for o in OPTIONS['v143'] if o.how == FILE for c in o.choices} - {'auto'}:
+        for word in set(PICTURE_WORDS) - {'auto'}:   # picture-mode.txt is only read now (the panel's file is written)
             self.assertIn(f'"{word}"', restore)
         self.assertIn('getenv("TOTK_PICTURE_MODE")', restore)
 

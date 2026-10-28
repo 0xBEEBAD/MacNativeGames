@@ -131,6 +131,8 @@ class SettingsPanel:
         self._line(box, text(f'gui.settings.desc.{option.id}'), MUTED)
         if option.how == 'file':
             self._line(box, text('gui.settings.also_finder'), MUTED)
+        else:
+            self._line(box, text('gui.settings.play_only'), MUTED)
         if option.id == 'interpolation' and gpu in ('checking', 'unknown'):
             self._line(box, text(f'gui.settings.gpu.{gpu}'), MUTED if gpu == 'checking' else BAD)
 

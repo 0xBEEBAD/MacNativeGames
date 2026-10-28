@@ -144,7 +144,10 @@ class Settings(Base):
         found = self.labels(panel.frame)
         self.assertEqual(found.count(text('gui.settings.applies')), 1)
         self.assertNotIn('only when started with Play', ' '.join(found))
-        self.assertEqual(found.count(text('gui.settings.also_finder')), 1)      # 1.4.3's picture only
+        # the settings panel's own choices say so, the one it lacks says Play passes it (after PR #1184)
+        files = sum(o.how == 'file' for o in OPTIONS['v143'])
+        self.assertEqual((found.count(text('gui.settings.also_finder')), found.count(text('gui.settings.play_only'))),
+                         (files, len(OPTIONS['v143']) - files))
 
     def test_play_is_the_primary_button_and_says_why_it_cannot(self):
         panel = self.opened()

@@ -28,28 +28,30 @@ TABS = {
                            'not offered.',
     'gui.settings.gpu.unknown': 'The GPU could not be checked: if it has no Metal 4 MetalFX frame interpolation, the '
                                 'game stops at start with interpolation on.',
-    'gui.settings.note.running': 'The game is running: close it to change the picture.',
+    'gui.settings.note.running': 'The game is running: close it to change these settings (or use its settings panel, key 1).',
     'gui.settings.play': '▶ Play',
     'gui.settings.title': '{name} · {version}',
-    'gui.settings.applies': 'These settings apply when you launch with Play.',
+    'gui.settings.applies': 'These are the game\'s own settings, the same as its settings panel (key 1): they hold for '
+                            'every start, from Play or from Finder.',
     'gui.settings.desc.picture': 'Automatic starts at 1920x1080 without MetalFX. MetalFX 2K sharpens it to 1440p; '
                                  'native 2K draws at 1440p.',
     'gui.settings.desc.interpolation': 'MetalFX adds frames between the game\'s own.',
     'gui.settings.desc.smoothing': 'MetalFX smooths the stair-stepped edges of the 3D scene.',
     'gui.settings.desc.ground': 'Sharper ground, walls and foliage far away (16x anisotropic filtering).',
     'gui.settings.desc.aspect': '21:9, or the shape of the window, instead of 16:9.',
-    'gui.settings.also_finder': 'Also used when you open the game from Finder; key 3 in the game changes it.',
+    'gui.settings.also_finder': 'Kept in the game\'s settings panel (key 1): changing it in either place changes both.',
+    'gui.settings.play_only': 'Only when the game is started with Play (the settings panel does not have it).',
     'gui.settings.why_not.app': 'Choose a built app to play',
     'gui.settings.why_not.build': 'Wait until the build ends',
     'gui.settings.playing': 'Starting the game...',
-    'gui.settings.played': 'Started. Choices marked "only when started with Play" are in use.',
+    'gui.settings.played': 'Started with these settings.',
     'gui.settings.play_failed.running': 'The game is already running: close it, then Play.',
     'gui.settings.play_failed.no_game_file': 'Choose the game file in the Build tab first.',
     'gui.settings.play_failed.no_app': 'No built app: build it first.',
     'gui.settings.play_failed.unknown_version': 'This app is not 1.4.3 or 1.9.0.',
     'gui.settings.play_failed.open_failed': 'The game could not be started: {detail}',
-    'gui.settings.held.interpolation': 'Frame interpolation was not passed: the GPU check had not answered yet, or '
-                                       'it said no. Play again once it has answered.',
+    'gui.settings.held.interpolation': 'This start is without frame interpolation (your choice is kept): the GPU '
+                                       'check had not answered yet, or it said no. Play again once it has answered.',
     'gui.settings.error': 'Settings: {error}',
     'gui.mods.note': 'You add the mods; the builder ships none. Only a valid mod can be switched on: its paths fit '
                      'this version and it replaces a file of the game; code patches go in through a build. That '
