@@ -104,9 +104,13 @@ int main(int argc, char **argv) {
             totk_sr_start("botw", "1.9.0"); totk_sr_picture(1, 1);
             run_frames(0.8);
             expect(labels(G), @[L1], "first graphics state");
-            /* The drag is one burst: sleeping between the steps let a slow runner stretch it past SETTLE_NS (500 ms) and
-               report in the middle of it, which the merge below is exactly about. frames still advance per step. */
-            for (int i = 0; i < 30; i++) { totk_sr_view(2000 + 10 * i, 1700, 120, 0); frame(120, SR_CAP_UNCAPPED, 0, 1); }   // a window dragged larger
+            // a window dragged larger: 30 sizes, two frames each. The frames advance without sleeping: paced by
+            // usleep, a slow runner stretched the drag past SETTLE_NS (500 ms) and reported in the middle of it, which
+            // the merge below is exactly about.
+            for (int i = 0; i < 30; i++) {
+                totk_sr_view(2000 + 10 * i, 1700, 120, 0);
+                for (int k = 1; k <= 2; k++) frame(120, SR_CAP_UNCAPPED, 0, 1);
+            }
             drain();
             fake_pic = (totk_sr_gfx){.out_w = 2560, .out_h = 1440, .upscale = 2, .taa = 1, .fi_mode = MFX_50};
             totk_sr_view(3840, 2160, 160, 1);   // full screen on another display
@@ -135,6 +139,11 @@ int main(int argc, char **argv) {
             for (double t = 0; t < 0.8; t += 1 / 120.0) { frame(120, SR_CAP_UNCAPPED_INTERVAL, 0, 1); usleep(8333); }
             drain();
             expect(@[last(G)[1]], @[@"1920x1080 | 21:9 | cap 120/game interval | present thread (display link stalled) | fullscreen@160Hz"], "aspect, path");
+            fake_pic = (totk_sr_gfx){.out_w = 2560, .out_h = 1440, .temporal = 1};   // TOTK_MFX_TEMPORAL
+            for (double t = 0; t < 0.8; t += 1 / 120.0) { frame(120, SR_CAP_UNCAPPED_INTERVAL, 0, 1); usleep(8333); }
+            drain();
+            expect(@[last(G)[1]], @[@"2560x1440 | MetalFX temporal | cap 120/game interval | fullscreen@160Hz"], "temporal");
+            assert([last(G)[2][@"temporalUpscaling"] isEqualToString:@"on"] && [last(G)[2][@"upscaling"] isEqualToString:@"off"]);
         } else if (!strcmp(scenario, "toggle")) {   // flag state_reporting 0 / 1 within one session
             totk_sr_start("totk", "1.4.3"); drain(); totk_sr_picture(1, 1); run_frames(0.8);
             totk_sr_set(0); drain(); run_frames(0.3);

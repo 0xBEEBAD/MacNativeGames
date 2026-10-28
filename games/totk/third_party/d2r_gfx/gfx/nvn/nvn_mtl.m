@@ -2630,6 +2630,8 @@ void dm_gfx_set_flag(const char *name, int v) {
     if (!strcmp(name, "cube_merge")) { atomic_store(&g_cg_on, v != 0); MLOG("[flag] cube_merge = %d", v != 0); return; }
     if (!strcmp(name, "skip_invisible")) { skv_set(v); return; }
     if (!strcmp(name, "mfx_upscale")) { mfxup_set(v < 0 ? !mfxup_enabled() : v); return; }   // TOTK_MFX_UPSCALE at run time (manual key 3 picture mode)
+    if (!strcmp(name, "mfx_temporal")) { tup_set(v < 0 ? !tup_enabled() : v); return; }   // TOTK_MFX_TEMPORAL at run time (totk_taa.m)
+    if (!strcmp(name, "tup_log")) { tup_log_frames(v); return; }
     if (!strcmp(name, "mfx_interp")) { mfx_set(v); return; }
     if (!strcmp(name, "state_reporting")) { totk_sr_set(v); return; }   // TOTK_STATE_REPORTING while playing (A/B in one session)
     if (!strcmp(name, "mfx_mv_dyn")) { mfx_set_mv_dyn(v); return; }
@@ -2695,6 +2697,9 @@ void dm_gfx_set_flag(const char *name, int v) {
     if (!strcmp(name, "deferred")) { extern void nvn_set_deferred_binds(int on); nvn_set_deferred_binds(v); return; }
     if (!strcmp(name, "framewait")) { extern void nvn_set_framewait(int on); nvn_set_framewait(v); return; }
     if (!strcmp(name, "sync_lag")) { extern void nvn_set_sync_lag(int on); nvn_set_sync_lag(v); return; }
+#ifdef GAME_BOTW
+    if (!strcmp(name, "wb_staged_nowait")) { extern void botw_wb_set_staged_skip(int on); botw_wb_set_staged_skip(v); return; }
+#endif
     if (!strcmp(name, "uncapped_interval")) { extern void nvn_set_uncapped_interval(int on); nvn_set_uncapped_interval(v); return; }
     if (!strcmp(name, "occl_visible")) { atomic_store(&g_occl_vis, v); MLOG("[flag] occl_visible = %d", v); return; }
     if (!strcmp(name, "drvfill")) { atomic_store(&g_drvfill_on, v != 0); MLOG("[flag] drvfill = %d", v != 0); return; }
@@ -6325,9 +6330,10 @@ static id<MTLSamplerState> samp_by_id(int sid) {   // 调用方持 g_rmu | Calle
     if (aniso < 0) { const char *e = getenv("TOTK_ANISO"); aniso = e ? atoi(e) : 0; aniso = aniso < 0 ? 0 : aniso > 16 ? 16 : aniso; }
     BOOL repeats = (d.sAddressMode == MTLSamplerAddressModeRepeat || d.sAddressMode == MTLSamplerAddressModeMirrorRepeat) &&
                    (d.tAddressMode == MTLSamplerAddressModeRepeat || d.tAddressMode == MTLSamplerAddressModeMirrorRepeat);
-    if (aniso > 1 && !p.cmp_mode && !p.reduction && d.minFilter == MTLSamplerMinMagFilterLinear && d.magFilter == MTLSamplerMinMagFilterLinear &&
-        d.mipFilter != MTLSamplerMipFilterNotMipmapped && d.maxAnisotropy < (NSUInteger)aniso && repeats)
-        d.maxAnisotropy = (NSUInteger)aniso;
+    BOOL material = !p.cmp_mode && !p.reduction && d.minFilter == MTLSamplerMinMagFilterLinear && d.magFilter == MTLSamplerMinMagFilterLinear &&
+                    d.mipFilter != MTLSamplerMipFilterNotMipmapped && repeats;
+    if (aniso > 1 && material && d.maxAnisotropy < (NSUInteger)aniso) d.maxAnisotropy = (NSUInteger)aniso;
+    if (material) d.lodBias = tup_mip_bias();   // TOTK_MFX_TEMPORAL_MIPBIAS (totk_taa.m): finer mip levels for a scene upscaled temporally; 0 unless set
     if (p.cmp_mode) d.compareFunction = (MTLCompareFunction)(p.cmp_func - 1);
     d.borderColor = p.border[3] > 0.5f ? (p.border[0] > 0.5f ? MTLSamplerBorderColorOpaqueWhite : MTLSamplerBorderColorOpaqueBlack) : MTLSamplerBorderColorTransparentBlack;
     if (p.reduction > 2) die("sampler reduction filter %u unsupported", p.reduction);
@@ -8912,7 +8918,7 @@ static void driver_cache_check_set(int v) { atomic_store(&g_driver_cache_check, 
 static void driver_cache_set(int v) { atomic_store(&g_driver_cache_on, v != 0); MLOG("[flag] drv_cache = %d", v != 0); }
 static int driver_cache_on(void) {
     int v = atomic_load(&g_driver_cache_on);
-    if (v < 0) { const char *e = getenv("TOTK_DRV_CACHE"); v = e ? strcmp(e, "0") != 0 : !TOTK_BOTW_BUILD; atomic_store(&g_driver_cache_on, v); }   // default on since 2026-10-21 (self-checked over the full benchmark; TOTK, Breath of the Wild =1); TOTK_DRV_CACHE=0 off
+    if (v < 0) { const char *e = getenv("TOTK_DRV_CACHE"); v = e ? strcmp(e, "0") != 0 : !TOTK_BOTW_BUILD; atomic_store(&g_driver_cache_on, v); }   // default on since 2026-10-21 (self-checked over the full benchmark; TOTK; Breath of the Wild off, 2026-10-27 1.6.0 Hebra same-run 8.94 vs 8.96 ms, =1 on); TOTK_DRV_CACHE=0 off
     return v;
 }
 static void driver_bank_fill(uint8_t *d, int bank, int stage) {
@@ -11958,9 +11964,12 @@ static void mfxup_queue_residency(void) {   // the upscaler's own output texture
    blending, full write mask, viewport and scissor over the whole target, no depth / stencil test) and the region starts
    at the origin; anything else keeps the game's own upscale. Perceptual colour processing: the canvas holds display
    values (dd3d1e0e copies it to the swapchain unchanged). Returns 1 when the draw was replaced.
-   This is controlled only by the manual picture mode, not by the window's output resolution. */
+   This is controlled only by the manual picture mode, not by the window's output resolution.
+   easu_site: the checks above for one draw. -1: not the upscale draw; 0: it is, with its source, the canvas, the region
+   and the colour mode; 1..5: it is, but stays (1 target / 2 blend, mask, depth / 3 textures, size / 4 viewport, scissor /
+   5 constants; the first of each kind is logged). mfxup_dock and tup_dock (TOTK_MFX_TEMPORAL) both start from it. */
 static uint64_t g_mfxup_dock_n, g_mfxup_dock_no[6];
-static int mfxup_dock(__unsafe_unretained NvShader *fs) {
+static int easu_site(__unsafe_unretained NvShader *fs, id<MTLTexture> *src_out, id<MTLTexture> *dst_out, NSUInteger *cw_out, NSUInteger *ch_out, int *mode_out) {
     /* 1.4.3's EASU variant normalizes samples by 1/3.5, then multiplies its
      * clamped result by 3.5. Those operations cancel for flat colors; adding
      * another gain would brighten the picture incorrectly. Its source retains
@@ -11968,7 +11977,7 @@ static int mfxup_dock(__unsafe_unretained NvShader *fs) {
      * scripts/upscale_color_probe.m (RGB/HDR + deliberately missing gain).
      * Both variants use the same con0 and integer output-size layout below. */
     int hdr = !strncmp(fs->key, "ac58fc18eda5f3878b16074dc28cd441644a66710f1b73954d39e57ac357561b-", 65); BOTW_MFXUP_DOCK_KEY(fs)
-    if (!hdr BOTW_AND_NOT_DOCK && strncmp(fs->key, "a3a570eb159202f14bc86479b0d3a012ecd830b8550505536eb70bf82372e4bb-", 65)) return 0;
+    if (!hdr BOTW_AND_NOT_DOCK && strncmp(fs->key, "a3a570eb159202f14bc86479b0d3a012ecd830b8550505536eb70bf82372e4bb-", 65)) return -1;
     int color_mode = hdr ? MFXUP_HDR : MFXUP_PERCEPTUAL;
     const view_t *cv = &R.rt.cview[0]; int hv = R.rt.has_cview[0];
     int why = 0;
@@ -12010,7 +12019,15 @@ static int mfxup_dock(__unsafe_unretained NvShader *fs) {
                  dst ? "有" : "无", (unsigned long)dst.width, (unsigned long)dst.height, (unsigned long)dst.textureType, (unsigned long)dst.usage,
                  (unsigned)S.color.blend_en, S.chmask.mask, (int)S.ms.a2c, (int)S.ds.dt, (int)S.ds.st,
                  S.has_vp, S.vp[0][0], S.vp[0][1], S.vp[0][2], S.vp[0][3], R.has_sc, R.sc.x, R.sc.y, R.sc.w, R.sc.h, k[0], k[1], k[2], k[3], ow, oh);
-        g_mfxup_dock_no[why]++; return 0; }
+        return why; }
+    *src_out = src; *dst_out = dst; *cw_out = cw; *ch_out = ch; *mode_out = color_mode;
+    return 0;
+}
+static int mfxup_dock(__unsafe_unretained NvShader *fs) {
+    id<MTLTexture> src = nil, dst = nil; NSUInteger cw = 0, ch = 0; int color_mode = 0;
+    int why = easu_site(fs, &src, &dst, &cw, &ch, &color_mode);
+    if (why < 0) return 0;
+    if (why) { g_mfxup_dock_no[why]++; return 0; }
     if (!mfxup_prepare(MFXUP_DOCKED, src, dst, dst.width, dst.height, color_mode)) { g_mfxup_dock_no[0]++; return 0; }   // scaler still being built (background): the game's own upscale this frame
     rp_end(); blit_close(); rs_sync();   // MetalFX encodes on the command buffer itself: the encode thread must be idle first
     pt_mark(g_cb, 'X', nil);   // TOTK_PASS_GPU: the MetalFX upscale as its own entry
@@ -12020,6 +12037,50 @@ static int mfxup_dock(__unsafe_unretained NvShader *fs) {
     g_mfxup_dock_n++; atomic_store(&g_mfxup_last, atomic_load(&g_cur_frame));
     return 1;
 }
+static void taa_queue_residency(void) {   // key 5's and the temporal upscale's textures (totk_taa.m), once they exist
+    static int added; if (added) return;
+    id<MTLResidencySet> r = taa_residency(); if (r) { [g_q4 addResidencySet:r]; added = 1; }
+}
+#ifndef GAME_BOTW
+/* TOTK_MFX_TEMPORAL (totk_taa.m tup_*, experimental): at the same draw, MetalFX temporal upscaling into the canvas, ahead of
+   the spatial path. The input is this frame's compose output (0ac9a549 writes it; the game's FXAA 22a61cb1 reads it and
+   writes the upscale's source): the picture before FXAA, on the pixel grid of the G-buffer depth. When that is not at
+   hand (not the size and format of the upscale's source, or the canvas itself), the upscale's own source; also with
+   TOTK_MFX_TEMPORAL_INPUT=fxaa (for comparisons). Returns 1 when the canvas holds the upscaled picture. */
+static __strong id<MTLTexture> g_tup_composed; static uint64_t g_tup_composed_frame;
+static uint64_t g_tup_n, g_tup_no[7];   // kept the game's or spatial upscale: [0] not ready (scaler being built, no depth or camera), [1..5] easu_site, [6] encode
+static int tup_dock(__unsafe_unretained NvShader *fs) {
+    id<MTLTexture> src = nil, dst = nil; NSUInteger cw = 0, ch = 0; int mode = 0;
+    int why = easu_site(fs, &src, &dst, &cw, &ch, &mode);
+    if (why < 0) return 0;
+    if (why) { g_tup_no[why]++; return 0; }
+    tup_note_site();
+    static int fxaa_in = -1; if (fxaa_in < 0) { const char *e = getenv("TOTK_MFX_TEMPORAL_INPUT"); fxaa_in = e && !strcmp(e, "fxaa"); }
+    id<MTLTexture> b = g_tup_composed_frame == atomic_load(&g_cur_frame) ? g_tup_composed : nil;
+    int pre = !fxaa_in && b && b != src && b != dst && b.width == src.width && b.height == src.height && b.pixelFormat == src.pixelFormat;
+    id<MTLTexture> color = pre ? b : src;
+    { static int last = -1; if (pre != last) { last = pre;
+        MLOG("[taa] temporal upscale input: %s, %lux%lu (format %lu), region %lux%lu -> canvas %lux%lu (format %lu, usage %#lx)",
+             pre ? "the compose output, before the game's FXAA" : "the upscale draw's own source (after FXAA)", (unsigned long)color.width, (unsigned long)color.height,
+             (unsigned long)color.pixelFormat, (unsigned long)cw, (unsigned long)ch, (unsigned long)dst.width, (unsigned long)dst.height,
+             (unsigned long)dst.pixelFormat, (unsigned long)dst.usage); } }
+    if (!tup_ready(color, cw, ch, dst)) { g_tup_no[0]++; return 0; }
+    rp_end(); blit_close(); rs_sync();   // the scaler encodes on the command buffer itself: the encode thread must be idle first
+    if (!tup_encode(g_cb, color, cw, ch, dst, ^(char k) { pt_mark(g_cb, k, nil); })) { g_tup_no[6]++; return 0; }   // TOTK_PASS_GPU: T motion, X scaler, Y copy
+    taa_queue_residency();
+    R.clear_c[0] = 0;   // the canvas is written in full: a clear still pending for it would wipe the picture when the UI opens the pass
+    if (MFX_CANVAS_FMT_OK(dst.pixelFormat)) g_mfx.last_c0 = R.rt.color[0]->serial;   // no replay pass opened for it: the canvas candidate canvas_learn would have taken (key 4, TOTK_MFX)
+    g_tup_n++; atomic_store(&g_mfxup_last, atomic_load(&g_cur_frame));
+    if (totk_sr_on()) atomic_store(&g_taa_last, atomic_load(&g_cur_frame));   // the frame's temporal anti-aliasing too (state reports)
+    if (g_tup_n % 1800 == 1)
+        MLOG("[taa] temporal upscale at the upscale draw, frame %llu: %llu frames; the game's or the spatial upscale kept %llu times (not ready %llu, target %llu, "
+             "blend/mask/depth %llu, textures/size %llu, viewport/scissor %llu, constants %llu, encode %llu)", (unsigned long long)atomic_load(&g_cur_frame),
+             (unsigned long long)g_tup_n, (unsigned long long)(g_tup_no[0] + g_tup_no[1] + g_tup_no[2] + g_tup_no[3] + g_tup_no[4] + g_tup_no[5] + g_tup_no[6]),
+             (unsigned long long)g_tup_no[0], (unsigned long long)g_tup_no[1], (unsigned long long)g_tup_no[2], (unsigned long long)g_tup_no[3],
+             (unsigned long long)g_tup_no[4], (unsigned long long)g_tup_no[5], (unsigned long long)g_tup_no[6]);
+    return 1;
+}
+#endif
 /* TOTK_MFX_UPSCALE: the game's compose shader 0ac9a549 (tone mapping and bloom into the canvas) samples the scene at
    texture slot 0; when that scene is smaller than the canvas (TOTK_RENDER_RES below the canvas size), upscale it with
    MetalFX first and let encode_args bind the result. Runs before the draw opens its render encoder. Docked: mfxup_dock.
@@ -12043,7 +12104,8 @@ static int mfxup_draw(NvProg *pr) {
     scene_size_note(fs);
     /* TOTK_TAA: the compose shader's scene goes through the MetalFX temporal scaler (1:1) first; encode_args binds the
        result, or the spatial upscale below takes it as its input when the scene is smaller than the canvas. The docked
-       upscale (mfxup_dock) is a later draw of another shader and reads the composed picture: unaffected. */
+       upscale (mfxup_dock) is a later draw of another shader and reads the composed picture: unaffected.
+       With TOTK_MFX_TEMPORAL taa_ready() is 0: the temporal pass is the upscale's (tup_dock). */
     id<MTLTexture> taa_out = nil;
     if (taa_ready() && TAA_COMPOSE(fs) && R.rt.n && R.rt.color[0]) {
         int tid = (int)(S.tex[1][0] & 0xfffff);
@@ -12052,12 +12114,18 @@ static int mfxup_draw(NvProg *pr) {
             rp_end(); blit_close(); rs_sync();
             taa_out = taa_encode(g_cb, src);
             if (taa_out) {
-                static int added; if (!added && taa_residency()) { [g_q4 addResidencySet:taa_residency()]; added = 1; }
+                taa_queue_residency();
                 if (totk_sr_on()) atomic_store(&g_taa_last, atomic_load(&g_cur_frame));
                 g_mfxup_src = src; g_mfxup_out = taa_out; g_mfxup_sh = fs;
             }
         }
     }
+#ifndef GAME_BOTW
+    if (tup_enabled() || tup_active()) {   // the latched state too: a frame jittered for the upscale is upscaled
+        if (TAA_COMPOSE(fs) && R.rt.n && R.rt.color[0]) { g_tup_composed = tex_mtl(R.rt.color[0]); g_tup_composed_frame = atomic_load(&g_cur_frame); }   // tup_dock's input
+        if (tup_dock(fs)) return 1;   // the temporal upscale wrote the canvas instead of this draw
+    } else if (g_tup_composed) g_tup_composed = nil;
+#endif
     if (!mfxup_enabled()) return 0;
     if (mfxup_dock(fs)) {
         static unsigned n; if (++n % 1800 == 1) { char b[200]; mfxup_stats(MFXUP_DOCKED, b, sizeof b);
@@ -12459,9 +12527,16 @@ frz_plain:;
        glows on hazy rocks (2026-10-21, found with DM_NVN_NANDRAW). Unmoved, each decal reads and writes its own pixel.
        Nor the draws counted by an occlusion query (g_vis_counting: the sphere proxies of lamps and other lights): moved by
        a sub-pixel, a small sphere covers a few more or fewer samples each frame (338 / 345 for an egg lamp), and the game
-       scales the light by that count, so lamps and what they light pulsed while standing still. */
+       scales the light by that count, so lamps and what they light pulsed while standing still.
+       TOTK_MFX_TEMPORAL (tup_active): only the proxies themselves, the draws that write no colour and no depth while
+       counting. The replay keeps counting from the game's first counter reset on (g_vis_counting stays set), so excluding
+       every draw while counting left nothing jittered (1.4.3, 2026-10-26: every draw in the G-buffer passes from that reset
+       on, 98.9 % of a run's), and the upscale had no sub-pixel detail to gather; a depth-only draw still moves with the colour draws tested
+       against it. Key 5 keeps the wider exclusion until its own A/B (the egg-lamp check) is repeated with this one. */
     double jx = 0, jy = 0; unsigned nv = di ? di->count : dw ? dw->count : 0;
-    if (taa_jittered() && nv > 6 && vo == 0 && vs == 1 && ux == 1 && uy == 1 && !g_vis_counting && !fb_fn && !att_n && !(!att_store_on() && draw_att_reads(pr, att_rs)))
+    int vis_proxy = tup_active() ? g_vis_counting && !(S.chmask.mask & (uint32_t)((1ull << (4 * (R.rt.n < 8 ? R.rt.n : 8))) - 1)) && !(S.ds.dt && S.ds.dw)
+                                 : g_vis_counting;
+    if (taa_jittered() && nv > 6 && vo == 0 && vs == 1 && ux == 1 && uy == 1 && !vis_proxy && !fb_fn && !att_n && !(!att_store_on() && draw_att_reads(pr, att_rs)))
         taa_jitter(&jx, &jy);
     if (S.has_vp) enc_r_viewport(en, (MTLViewport){vx + jx, vy + jy, vw, vh, S.dr[0], S.dr[1]});
     else enc_r_viewport(en, (MTLViewport){vx + jx, vy + jy, vw, vh, 0, 1});
@@ -15164,7 +15239,7 @@ void mtl_sr_picture(totk_sr_gfx *s, uint64_t *upscaled_at, uint64_t *antialiased
     float a = runtime_aspect_now ? runtime_aspect_now() : 0;
     s->aspect_milli = a > 0 && fabsf(a - 16.0f / 9.0f) > 0.01f ? (int)lroundf(a * 1000) : 0;
     s->upscale = mfxup_enabled() ? 1 + mfxup_output_enabled() : 0;
-    s->taa = taa_enabled(); s->fi_mode = mfx_enabled();
+    s->taa = taa_enabled(); s->fi_mode = mfx_enabled(); s->temporal = tup_enabled();
     s->present_path = __atomic_load_n(&g_rescue_mode, __ATOMIC_RELAXED) ? 2 : !__atomic_load_n(&g_dm_present_link, __ATOMIC_RELAXED);
     *upscaled_at = atomic_load(&g_mfxup_last); *antialiased_at = atomic_load(&g_taa_last);
 }
@@ -17333,10 +17408,17 @@ void botw_wb_stage_encode(void) {
     }
     g_wb_nsub = 0;
 }
+static _Atomic int g_wb_staged_skip = -1;
+int botw_wb_staged_skip_on(void) {
+    int v = atomic_load_explicit(&g_wb_staged_skip, memory_order_relaxed);
+    if (v < 0) { const char *e = getenv("TOTK_WB_STAGED_NOWAIT"); v = !(e && !strcmp(e, "0")); atomic_store(&g_wb_staged_skip, v); }
+    return v;
+}
+void botw_wb_set_staged_skip(int on) { atomic_store(&g_wb_staged_skip, on != 0); MLOG("[flag] wb_staged_nowait = %d", on != 0); }
 /* wb_write_list: an entry staged after its last rendering is swizzled from its stage (the caller waited for the fence) */
 int botw_wb_from_stage(void *ev) {
     wb_ent *e = ev; const tex_t *t = &e->t;
-    if (!e->stage || e->stage_fence < e->fence) return -1;
+    if (!WB_STAGED(e)) return -1;
     /* ARC retains and autoreleases the receiver of -contents (NS_RETURNS_INNER_POINTER), and the game's thread has no
        autorelease pool to drain it (wb_level_back): without this pool no stage buffer was ever freed (2.9 GB of GPU
        memory in 25 minutes). */
@@ -17426,14 +17508,47 @@ int botw_wb_newer(const void *mem, uint64_t gen) {
    formats x 8 write masks) are built on 4 threads and added like the warm-up adds them (par_add, each thread its own
    batch, par_flush_thread), one key twice from two threads; then the folder is read back as a later start reads it,
    with files a cut-short write leaves, and every pipeline must come from its file without compiling
-   (MTLPipelineOptionFailOnBinaryArchiveMiss). The build folders the batches made must be gone. */
+   (MTLPipelineOptionFailOnBinaryArchiveMiss). The build folders the batches made must be gone. A forced late startup
+   cleanup while two batches overlap must keep their live folder; only the last batch may remove it. */
+static int par_probe_startup_cleanup(NSString *dir) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *owned = [dir stringByAppendingPathComponent:@"probe-owned"], *shared = [dir stringByAppendingPathComponent:@"probe-shared"];
+    NSString *stale = [owned stringByAppendingPathComponent:@"gpuarchiver-stale"], *other = [shared stringByAppendingPathComponent:@"gpuarchiver-shared"];
+    NSString *unrelated = [owned stringByAppendingPathComponent:@"keep-this-entry"], *live = [owned stringByAppendingPathComponent:@"gpuarchiver-live"];
+    for (NSString *path in @[stale, other, unrelated]) [fm createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil];
+    g_par_probe_ga_dirs = @[@{@"path": owned, @"own": @YES}, @{@"path": shared, @"own": @NO}];
+    par_open_dir(g_dev);
+    if ([fm fileExistsAtPath:stale] || ![fm fileExistsAtPath:other] || ![fm fileExistsAtPath:unrelated])
+        MDIE("pipeline archive probe: startup cleanup did not finish or removed unrelated/shared entries");
+    par_batch_begin();
+    [fm createDirectoryAtPath:live withIntermediateDirectories:YES attributes:nil error:nil];
+    dispatch_semaphore_t entered = dispatch_semaphore_create(0), leave = dispatch_semaphore_create(0);
+    dispatch_group_t workers = dispatch_group_create();
+    dispatch_group_async(workers, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        par_batch_begin(); dispatch_semaphore_signal(entered);
+        if (dispatch_semaphore_wait(leave, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC))) MDIE("pipeline archive probe: batch release timed out");
+        par_batch_end();
+    });
+    if (dispatch_semaphore_wait(entered, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC))) MDIE("pipeline archive probe: overlapping batch did not start");
+    // Force a delayed startup request while both batches are live: the old unconditional deletion removes live.
+    dispatch_sync(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ par_ga_cleanup_startup(); });
+    if (![fm fileExistsAtPath:live]) MDIE("pipeline archive probe: delayed startup cleanup removed an active batch folder");
+    par_batch_end();
+    if (![fm fileExistsAtPath:live]) MDIE("pipeline archive probe: first batch removed another batch's live folder");
+    dispatch_semaphore_signal(leave);
+    if (dispatch_group_wait(workers, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC))) MDIE("pipeline archive probe: final batch did not finish");
+    if ([fm fileExistsAtPath:live] || ![fm fileExistsAtPath:other] || ![fm fileExistsAtPath:unrelated])
+        MDIE("pipeline archive probe: final batch cleanup left its folder or removed unrelated/shared entries");
+    g_par_probe_ga_dirs = nil;   // all fixture workers joined; real Metal batches use the normal cache folders
+    return 6;
+}
 int mtl_probe_pipeline_archive(void) {
     NSString *dir = [NSTemporaryDirectory() stringByAppendingFormat:@"totk-probe-pipeline-archive-%d", getpid()];
     [NSFileManager.defaultManager removeItemAtPath:dir error:nil];
     setenv("TOTK_SHADER_CACHE", dir.fileSystemRepresentation, 1); setenv("TOTK_SHADER_SEED", "off", 1);
     mtl_init();
     if (![totk_rt_dir() isEqualToString:dir]) MDIE("pipeline archive probe: the cache folder was chosen before the probe (%s)", totk_rt_dir().UTF8String);
-    par_open_dir(g_dev);
+    int cleanup_checks = par_probe_startup_cleanup(dir);
     if (!g_par_on || g_par_valid) MDIE("pipeline archive probe: archive on %d, valid %d in an empty folder", g_par_on, g_par_valid);
     NSError *error = nil;
     id<MTLLibrary> lib = [g_dev newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal;\nstruct V { float4 p [[position]]; };\n"
@@ -17499,5 +17614,5 @@ int mtl_probe_pipeline_archive(void) {
     }
     if (g_par_open.count != want) MDIE("pipeline archive probe: %lu files opened (want %lu)", (unsigned long)g_par_open.count, (unsigned long)want);
     [NSFileManager.defaultManager removeItemAtPath:dir error:nil];
-    return atomic_load(&built) + from_archive;
+    return cleanup_checks + atomic_load(&built) + from_archive;
 }

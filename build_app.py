@@ -1428,6 +1428,18 @@ def source_commit():
     return result.stdout.strip() if result.returncode == 0 else ''
 
 
+def write_main_build_id(nso, target):
+    if not nso.is_file():
+        return
+    with nso.open('rb') as f:
+        f.seek(0x40)
+        build_id = f.read(20)
+    if len(build_id) != 20:
+        raise BuildError(f'{nso}: too short to hold a build ID')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(build_id.hex().upper() + '\n')
+
+
 def step_app(tree, out, logs, *, version="v0", game='totk'):
     expected = VERSIONS[version]
     app_name, bundle_id, executable = APPS[game]
@@ -1443,6 +1455,7 @@ def step_app(tree, out, logs, *, version="v0", game='totk'):
         files += [f'extracted/{version}/aoc/{index}/romfs.bin', f'extracted/{version}/aoc/{index}/runtime-index.bin']
     for rel in files:
         clone(tree / rel, res / rel)
+    write_main_build_id(tree / f'extracted/{version}/exefs/main', res / f'extracted/{version}/exefs/main.build-id')
     for rel in (f'extracted/{version}/romfs-patches', f'extracted/{version}/romfs-patches-out', 'extracted/firmware/shared-fonts'):
         if (tree / rel).is_dir():   # Breath of the Wild has no RomFS overlays
             copy_tree(tree / rel, res / rel)
@@ -1465,6 +1478,13 @@ def step_app(tree, out, logs, *, version="v0", game='totk'):
     commit = source_commit()
     if commit:
         info['MNGSourceCommit'] = commit   # app/launcher.m -> TOTK_SOURCE_COMMIT: the HUD box shows which commit the app is
+    # Identify the source baseline, not the Nintendo game version; local patches may also be present.
+    try:
+        revision = subprocess.check_output(['git', '-C', str(REPO), 'rev-parse', 'HEAD'], text=True).strip()
+        if len(revision) == 40 and all(c in '0123456789abcdef' for c in revision):
+            info['MNGSourceRevision'] = revision
+    except (OSError, subprocess.CalledProcessError):
+        pass  # Source archives without Git metadata simply do not check for updates.
     import plistlib
     (tmp / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
     (tmp / 'Contents/PkgInfo').write_bytes(b'APPL????')

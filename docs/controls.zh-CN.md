@@ -4,7 +4,7 @@
 
 装好 App 之后怎么玩：手柄、键盘、鼠标、震动、体感和设置面板（1 键）。
 
-在 Mac 上，macOS 能识别的手柄（如 DualSense、Xbox 手柄）会映射为 Switch Pro 手柄。PlayStation 和 Xbox 手柄的四个面键按位置映射，和游戏里的按键提示位置一致：右边是 A、下边是 B、上边是 X、左边是 Y（圆圈 / 叉 / 三角 / 方块；Xbox 的 B / A / Y / X）。任天堂手柄按标签映射。按 **6** 可以手动选手柄类型（Xbox、PlayStation 按位置，Switch 按标签）；类型为自动时，设置 `TOTK_FACE_BUTTONS=label` 可以让所有手柄都按标签映射。震动和体感需要手柄及 macOS 提供对应能力，并非所有手柄都有陀螺仪。Mac 键盘映射按美式布局对应的物理键位：
+在 Mac 上，macOS 能识别的手柄（如 DualSense、Xbox 手柄）会映射为 Switch Pro 手柄。PlayStation 和 Xbox 手柄的四个面键按位置映射，和游戏里的按键提示位置一致：右边是 A、下边是 B、上边是 X、左边是 Y（圆圈 / 叉 / 三角 / 方块；Xbox 的 B / A / Y / X）。任天堂手柄按标签映射。按 **6** 可以手动选手柄类型（Xbox、PlayStation 按位置，Switch 按标签）；类型为自动时，设置 `TOTK_FACE_BUTTONS=label` 可以让所有手柄都按标签映射。震动和体感需要手柄及 macOS 提供对应能力，并非所有手柄都有陀螺仪。macOS 不给震动能力的手柄（显示为通用 HID 手柄）仍然可以震：游戏会按手柄配置表，把震动直接写进它的 HID 设备（内置：8BitDo Ultimate 2 Wireless，固件 1.03 及以上）。要加别的手柄，在 `controls.txt` 旁边的 `rumble-profiles.txt` 里每个手柄写一行：`厂商号 产品号 报告ID 长度 低频偏移 高频偏移 [1]`（最后可选的 1 表示高频马达很弱，由低频马达承担较强的一边；十进制或 `0x` 十六进制；格式见 `games/totk/runtime/gamepad_feedback.m` 里配置表上方的注释；SDL 的 HIDAPI 驱动里能查到很多手柄的报告格式）。下面两行是按 SDL 的 HIDAPI 驱动推出来的，**没有在手柄上试过**（抄进 `rumble-profiles.txt` 试，能不能用请告诉我们）：8BitDo Pro 3 `0x2dc8 0x6009 0x05 5 1 2`，NVIDIA Shield V103 `0x0955 0x7210 0x01 7 2 4`。报告里带固定命令字节的手柄（Xbox 360、GameSir、飞智）暂时写不成配置行。`TOTK_RUMBLE_HID=0` 关闭这个功能；`TOTK_RUMBLE_HID_FLOOR`（0..255）和 `TOTK_RUMBLE_HID_HOLD_MS` 决定游戏里很弱很短的震动被加强多少、多维持多久。Mac 键盘映射按美式布局对应的物理键位：
 
 | 按键 | Switch | | 按键 | Switch |
 |---|---|---|---|---|
@@ -33,7 +33,7 @@ mouse_middle = zl
 
 **震动（Mac，设置面板）：** 游戏的 HD 震动由手柄的触觉马达播放（macOS 提供触觉功能的手柄，如 DualSense），默认开启。设置面板（1 键）里有“震动”开关、“震动强度”（0.5× 到 4×）和“体感瞄准”开关：开关立即生效，强度从下一次震动起生效；游戏启动时没开的震动或体感，打开后从下次启动起生效，该行会写明。面板把选择保存在 `controls.txt` 旁边的三个单词文件里，每次启动沿用，和 `controller-type.txt`、`mouse.txt` 一样：`rumble.txt`（`on` 或 `off`）、`rumble-gain.txt`（震动强度，大于 0、最大 4 的数，默认 1：`2` 让游戏的震动加倍，超过满强度的部分按满强度播放）和 `gyro.txt`（`on` 或 `off`，见下面的体感瞄准）。也可以自己写这些文件，例如在 `~/Library/Application Support/MacNativeGames/TOTK`（旷野之息是 `BotW`）里建 `rumble.txt`，写上 `off`。设置了 `TOTK_RUMBLE`、`TOTK_RUMBLE_GAIN` 或 `TOTK_GYRO` 时，环境变量仍然优先于文件，面板里对应一行显示为灰色的当前值。文件里写了游戏不认识的内容时保持默认值并写进日志，不会让游戏无法启动。
 
-**体感瞄准（Mac）：** 手柄的陀螺仪会作为 Switch Pro 手柄的体感传给游戏，默认开启（设置面板的“体感瞄准”开关、`gyro.txt` 写 `off` 或设 `TOTK_GYRO=0` 即关闭）。支持向 macOS 提供体感数据的手柄（DualSense、DualShock），以及 Switch 风格的 Pro 手柄（包括 Switch 模式下的 8BitDo），后者直接从手柄自己的 HID 报告读取体感、使用手柄出厂校准。Xbox 手柄没有陀螺仪；macOS 不认的普通 HID 手柄只有按键和摇杆。在游戏选项里打开体感操作，然后转动手柄瞄准（弓、究极手等）。`TOTK_GYRO_DEADZONE=<度/秒>` 设置小幅转动的死区；转动方向不对时用 `TOTK_GYRO_AXES` 重映射轴向（例如 `-x,y,-z`）。iPhone / iPad 见下面的“手机体感与震动”。已在 Mac 上用王国之泪测试。
+**体感瞄准（Mac）：** 手柄的陀螺仪会作为 Switch Pro 手柄的体感传给游戏，默认开启（设置面板的“体感瞄准”开关、`gyro.txt` 写 `off` 或设 `TOTK_GYRO=0` 即关闭）。支持向 macOS 提供体感数据的手柄（DualSense、DualShock），以及 Switch 风格的 Pro 手柄（包括 Switch 模式下的 8BitDo），后者直接从手柄自己的 HID 报告读取体感、使用手柄出厂校准。蓝牙连接的 8BitDo Ultimate 2 Wireless（固件 1.03 及以上）macOS 不给它体感，游戏改从它的 HID 报告里读取（`games/totk/runtime/hid_imu.h` 里列着这类手柄）。Xbox 手柄没有陀螺仪；macOS 不认的普通 HID 手柄只有按键和摇杆。在游戏选项里打开体感操作，然后转动手柄瞄准（弓、究极手等）。`TOTK_GYRO_DEADZONE=<度/秒>` 设置小幅转动的死区；转动方向不对时用 `TOTK_GYRO_AXES` 重映射轴向（例如 `-x,y,-z`）。iPhone / iPad 见下面的“手机体感与震动”。已在 Mac 上用王国之泪测试。
 
 **DualSense 自适应扳机（Mac）：** 用 DualSense 时，林克拉弓期间 R2（ZR）会像弓弦一样越按越紧，箭射出或收弓的一刻立即放松；其他时候两个扳机都没有阻力，L2 从不加阻力。游戏不会把拉弓状态告诉手柄，所以运行时每 10 毫秒从游戏内存里读取一次（`runtime/bow_state.h`，只读；支持旷野之息 1.9.0 和王国之泪 1.4.3，其他版本不动扳机）。USB 和蓝牙都能用；蓝牙下拉弓刚开始约 30–45 毫秒还没有阻力。默认开启：设置面板（1 键）里的“DualSense 拉弓扳机”开关可以立即关闭或打开，选择保存在 `controls.txt` 旁边的 `dualsense-triggers.txt`（内容为 `off` 或 `on`，也可以自己写）。`TOTK_DUALSENSE_TRIGGERS=on` / `off` 优先于该文件，此时开关显示为灰色的当前值。已知限制：王国之泪打开菜单时会保持拉弓状态，所以 R2 的阻力会持续到关闭菜单。`TOTK_TRIGGER_LOG=1` 记录扳机的模式和状态。已在 Mac 上用两款游戏测试，DualSense 蓝牙连接。
 
@@ -44,7 +44,7 @@ mouse_middle = zl
 - **帧率图：** 在叠加框下面画最近 30 秒的帧率曲线，默认关。选择保存在 `controls.txt` 旁边的 `fps-graph.txt`（`on` 或 `off`）。
 - **锁帧：** 关、30、40、60 帧，帧率严格锁定（能整除显示器刷新率时按刷新节拍，否则按自己的时钟）。
 - **补帧（MetalFX）：** 关、30+30、40+40、50+50（游戏锁在 30 / 40 / 50 帧，MetalFX 在每两帧之间补一帧）、不限帧。选了补帧会自动关掉锁帧，反过来也一样。
-- **分辨率：** 720p、1080p、1080p + MetalFX 放大到窗口、2K（2560×1440，游戏画布和界面）、2K + MetalFX 放大（4K 屏）。开局是 1080p；1.4.3 把选择记在 `~/Library/Application Support/MacNativeGames/TOTK/picture-mode.txt`，下次沿用。窗口模式下窗口立刻变成对应大小（屏幕放不下就缩小）。旷野之息 1.9.0 只有 1080p 和 MetalFX 两项。
+- **分辨率：** 720p、1080p、1080p + MetalFX 放大到窗口、2K（2560×1440，游戏画布和界面）、2K + MetalFX 放大（4K 屏）。首次开局是 1080p，选择会保留到下次启动。窗口模式下窗口立刻变成对应大小（屏幕放不下就缩小）。旷野之息 1.9.0 只有 1080p 和 MetalFX 两项。
 - **画面比例：** 16:9、16:10、21:9、32:9（1.2.1、1.4.3、旷野之息 1.6.0 和 1.9.0）。相机两侧看到更多（16:10 时保持纵向视野；`TOTK_ASPECT_VERT=1`，1.4.3，实验性，改为上下看到更多，部分界面特效位置不对）；HUD、菜单和地图保持原比例、在中间 16:9；跟随世界物体的标记暂时不跟着移。窗口模式下窗口变成这个形状，全屏时画面保持这个比例、四周留黑边。`TOTK_ASPECT=2.39`（或 `3440x1440`）从这个比例开局，并加进列表。
 - **边缘平滑（MetalFX 时间性）：** 3D 场景的时间性抗锯齿，开局关（`TOTK_TAA=1` 开局就开；1.4.3 和旷野之息）；`TOTK_ANISO=16` 另外打开 16 倍各向异性过滤。
 - **手柄类型：** 自动（会写出认出的手柄，如“自动（PlayStation）”）、Xbox、PlayStation、Switch。Xbox 和 PlayStation 按位置映射面键，Switch 按标签。记在 `controls.txt` 旁边的 `controller-type.txt`；通用 HID 手柄保持 Switch 式。游戏里提示的按键图标不跟着变（见 `make_button_icons.py`）。
