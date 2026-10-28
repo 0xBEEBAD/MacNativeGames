@@ -159,6 +159,9 @@ static uint64_t gamepad_buttons(GCExtendedGamepad *pad, int by_position) {
     if (pad.rightThumbstickButton.isPressed) buttons |= 1ULL << 5;
     if (pad.leftShoulder.isPressed) buttons |= 1ULL << 6;
     if (pad.rightShoulder.isPressed) buttons |= 1ULL << 7;
+    /* ZL / ZR: GameController counts a DualSense trigger as pressed from its first step of travel (value > 0, 1/255) and
+       released at 0, with no chatter in between and nothing from a finger resting on it (measured over Bluetooth on macOS
+       27.2, 2026-10-27), so a threshold of our own could only make the bow draw later. */
     if (pad.leftTrigger.isPressed) buttons |= 1ULL << 8;
     if (pad.rightTrigger.isPressed) buttons |= 1ULL << 9;
     if (pad.buttonMenu.isPressed) buttons |= 1ULL << 10;
@@ -662,6 +665,7 @@ void runtime_gamepad_text_capture(int on) {
     memset(toggleMoved, 0, sizeof toggleMoved);
     refresh_gamepads();
 }
+int runtime_gamepad_game_input(void) { return !atomic_load(&textCapture); }   /* the bow thread (gamepad_feedback.m) */
 /* Keep the Switch HID fallback's expiry identical for the UI and the game. gamepadLock held. */
 static RuntimeGamepadState text_state_locked(void) {
     RuntimeGamepadState state = textPad;

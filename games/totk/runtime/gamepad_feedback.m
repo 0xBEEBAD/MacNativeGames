@@ -28,6 +28,7 @@ int runtime_triggers_available(void) { return 0; }
 int runtime_triggers_locked(void) { return 1; }
 int runtime_triggers_choice(void) { return 0; }
 void runtime_triggers_choose(int on) { (void)on; }
+void runtime_triggers_release(void) {}
 void runtime_feedback_attach(GCController *c) { (void)c; }
 void runtime_feedback_detach(GCController *c) { (void)c; }
 void runtime_feedback_quiet(void) {}
@@ -36,6 +37,7 @@ int runtime_rumble_gain_locked(void) { return 1; }
 float runtime_rumble_gain(void) { return 1; }
 void runtime_rumble_gain_set(float g) { (void)g; }
 #else
+#import <AppKit/AppKit.h>   /* NSApp.active: R2 resists only while the app is in front */
 #import <CoreHaptics/CoreHaptics.h>
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
@@ -603,13 +605,18 @@ static void hid_rumble_stop(void) {   /* main queue */
    It follows the draw within a frame; over Bluetooth the controller takes another 30-45 ms, so the very start of the pull
    is slack. On by default: dualsense-triggers.txt next to controls.txt saying "off" turns it off (TOTK_DUALSENSE_TRIGGERS
    =on / off overrides the file; an agent's test session, TOTK_SLOT_OWNER claude / codex, leaves it off unless set).
-   macOS drops a controller's trigger effects while the app is in the background, so they are sent again when it is
-   active again; the triggers go back to off when the controller goes away or the game ends. Known limit: Tears of the
-   Kingdom keeps the bow drawn while its menu is open (Breath of the Wild does not), so R2 keeps resisting there until
-   the menu closes. TOTK_TRIGGER_LOG=1 logs every change of the triggers' mode and status (diagnostics). */
+   R2 resists only while bow_resists (bow_state.h) says so, and lets go the moment one part does not: the draw ends, a menu
+   pauses the world (Tears of the Kingdom: BOW_PAUSED; Breath of the Wild's timer drops to 0), the state cannot be read (a
+   load, the title screen), the settings panel or the on-screen keyboard takes the controller (until its buttons are
+   released), or the app leaves the front (it lets go then, as macOS would, and sends the state again when it is back).
+   Both triggers go back to off when the controller goes away (another DualSense still connected takes the bow), when the
+   settings turn them off, or when the game ends. TOTK_TRIGGER_LOG=1 logs every change of the triggers' mode and status,
+   and why R2 holds or lets go (diagnostics). */
 enum { BOW_POLL_MS = 10 };
 static GCDualSenseGamepad *triggerPad;   /* main queue */
-static BOOL bowDrawn;                    /* main queue: what R2 shows */
+static int bowState = BOW_UNKNOWN;       /* main queue: the bow thread's last reading */
+static BOOL gameInput = YES, appActive;  /* main queue: the game gets the controllers; the app is in front */
+static BOOL r2Resists;                   /* main queue: what R2 was last set to */
 static int triggerChoice = -1;   /* main queue: the settings panel's pick, or the file's word once read; -1 not yet */
 static int triggers_wanted(void) {
     const char *e = getenv("TOTK_DUALSENSE_TRIGGERS"), *owner = getenv("TOTK_SLOT_OWNER");
@@ -653,38 +660,55 @@ static int bow_state_now(void) {   /* the bow thread only */
     return BOW_UNKNOWN;
 #endif
 }
-static void triggers_r2(void) {   /* main queue: R2 as the bow is */
+/* main queue: R2 as bow_resists says; sent when that changes, or always (force: a new pad, the app active again, whose
+   effects macOS dropped) */
+static void triggers_r2(BOOL force) {
     if (!triggerPad) return;
-    if (bowDrawn) [triggerPad.rightTrigger setModeSlopeFeedbackWithStartPosition:0.05f endPosition:0.95f startStrength:0.2f endStrength:0.8f];
+    BOOL resists = bow_resists(bowState, gameInput, appActive);
+    if (resists == r2Resists && !force) return;
+    if (resists) [triggerPad.rightTrigger setModeSlopeFeedbackWithStartPosition:0.05f endPosition:0.95f startStrength:0.2f endStrength:0.8f];
     else [triggerPad.rightTrigger setModeOff];
+    if (resists != r2Resists && getenv("TOTK_TRIGGER_LOG"))
+        fprintf(stderr, "[triggers] R2 %s\n", resists ? "bowstring" : !appActive ? "slack: the app is not in front" :
+                !gameInput ? "slack: the settings panel or keyboard has the controller" : bowState == BOW_PAUSED ? "slack: the game is paused" :
+                bowState == BOW_UNKNOWN ? "slack: no bow state" : "slack: the bow is not drawn");
+    r2Resists = resists;
 }
 static void triggers_send(void) {   /* main queue: both triggers, at attach and when the app is active again */
     if (!triggerPad) return;
     [triggerPad.leftTrigger setModeOff];
-    triggers_r2();
+    triggers_r2(YES);
 }
 static void triggers_off(void) {
     if (!triggerPad) return;
-    [triggerPad.leftTrigger setModeOff]; [triggerPad.rightTrigger setModeOff]; triggerPad = nil;
+    [triggerPad.leftTrigger setModeOff]; [triggerPad.rightTrigger setModeOff]; triggerPad = nil; r2Resists = NO;
 }
-static void triggers_at_exit(void) { if (triggerPad) { triggers_off(); usleep(50000); } }   /* let the report reach the controller */
-/* The bow thread: every 10 ms the bow's state; R2 changes only when it does. A line the first time the state can be read
-   (the world is up), and every 30 s one with the draws that ended, if any. */
+/* The game ends: both triggers off, and a moment for the report to reach the controller. At exit, and when the window
+   closes (frontend.m): its _exit skips atexit, and a save can keep the game running a while after it. */
+void runtime_triggers_release(void) { if (triggerPad) { triggers_off(); usleep(50000); } }
+/* The bow thread: every 10 ms the bow's state and whether the game gets the controllers; the main queue hears of a change.
+   A line the first time the state can be read (the world is up), and every 30 s one with the draws that ended, if any;
+   TOTK_TRIGGER_LOG=1 also logs each change of the state. */
 static void *bow_watch(void *arg) {
     (void)arg;
     pthread_setname_np("bow-state");
-    BOOL drawn = NO, found = NO;
+    static const char *names[] = {"unknown", "not drawn", "drawn", "paused"};
+    BOOL found = NO, log = getenv("TOTK_TRIGGER_LOG") != NULL;
+    int last = BOW_UNKNOWN, lastInput = 1;
     unsigned draws = 0; uint64_t since = 0, longest = 0, logAt = runtime_now_ns();
     for (;;) {
-        int state = bow_state_now();
+        int state = bow_state_now(), input = runtime_gamepad_game_input();
         uint64_t t = runtime_now_ns();
         if (state != BOW_UNKNOWN && !found) { found = YES; fprintf(stderr, "[triggers] bow state found: R2 follows the bow\n"); }
-        BOOL now = state == BOW_DRAWN;
-        if (now != drawn) {
-            drawn = now;
-            if (now) since = t;
-            else { draws++; if (t - since > longest) longest = t - since; }
-            dispatch_async(dispatch_get_main_queue(), ^{ bowDrawn = now; triggers_r2(); });
+        if (state != last || input != lastInput) {
+            if ((state == BOW_DRAWN) != (last == BOW_DRAWN)) {
+                if (state == BOW_DRAWN) since = t;
+                else { draws++; if (t - since > longest) longest = t - since; }
+            }
+            if (log && state != last) fprintf(stderr, "[triggers] bow %s\n", names[state + 1]);
+            if (log && input != lastInput) fprintf(stderr, "[triggers] the game %s the controllers\n", input ? "has" : "does not have");
+            last = state; lastInput = input;
+            dispatch_async(dispatch_get_main_queue(), ^{ bowState = state; gameInput = input; triggers_r2(NO); });
         }
         if (t - logAt >= 30000000000ull) {
             if (draws) fprintf(stderr, "[triggers] last 30 s: bow drawn %u times, longest %.1f s\n", draws, longest / 1e9);
@@ -711,15 +735,14 @@ static void triggers_watch(void) {   /* main queue, every 250 ms */
 static void triggers_apply(GCController *c, const char *name) {   /* main queue */
     if (![c.extendedGamepad isKindOfClass:GCDualSenseGamepad.class] || !triggers_wanted()) return;
     if (!bow_state_supported()) { fprintf(stderr, "[triggers] %s: no bow state for this game version; triggers left alone\n", name); return; }
-    if (triggerPad && triggerPad != c.extendedGamepad) { [triggerPad.leftTrigger setModeOff]; [triggerPad.rightTrigger setModeOff]; }   /* a newer pad takes the bow; the old one goes slack */
-    triggerPad = (GCDualSenseGamepad *)c.extendedGamepad;
-    triggers_send();
-    fprintf(stderr, "[triggers] %s: R2 is a bowstring while the bow is drawn (slope 0.2 -> 0.8 over 5-95 %%), L2 slack\n", name);
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        atexit(triggers_at_exit);
-        [NSNotificationCenter.defaultCenter addObserverForName:@"NSApplicationDidBecomeActiveNotification" object:nil queue:NSOperationQueue.mainQueue
-                                                    usingBlock:^(NSNotification *n) { (void)n; triggers_send(); }];
+        atexit(runtime_triggers_release);
+        appActive = NSApp.active;   /* from here the two notifications keep it */
+        [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue
+                                                    usingBlock:^(NSNotification *n) { (void)n; appActive = YES; triggers_send(); }];
+        [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationWillResignActiveNotification object:nil queue:NSOperationQueue.mainQueue
+                                                    usingBlock:^(NSNotification *n) { (void)n; appActive = NO; triggers_r2(YES); }];
         if (getenv("TOTK_TRIGGER_LOG")) {
             static dispatch_source_t watch;
             watch = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
@@ -734,6 +757,18 @@ static void triggers_apply(GCController *c, const char *name) {   /* main queue 
         if (r) fprintf(stderr, "[triggers] the bow thread could not start (%d): R2 stays slack\n", r);
         else pthread_detach(thread);
     });
+    if (triggerPad && triggerPad != c.extendedGamepad) { [triggerPad.leftTrigger setModeOff]; [triggerPad.rightTrigger setModeOff]; }   /* a newer pad takes the bow; the old one goes slack */
+    triggerPad = (GCDualSenseGamepad *)c.extendedGamepad;
+    triggers_send();
+    fprintf(stderr, "[triggers] %s: R2 is a bowstring while the bow is drawn (slope 0.2 -> 0.8 over 5-95 %%), L2 slack\n", name);
+}
+/* The DualSense to take the bow when none has it (the settings turned it on, or the one that had it went away): the pad in
+   use, else any connected one; never `gone`, which is disconnecting. */
+static void triggers_pick(GCController *gone) {   /* main queue */
+    if (triggerPad) return;
+    GCController *current = GCController.current, *pick = current != gone && [current.extendedGamepad isKindOfClass:GCDualSenseGamepad.class] ? current : nil;
+    for (GCController *c in GCController.controllers) if (!pick && c != gone && [c.extendedGamepad isKindOfClass:GCDualSenseGamepad.class]) pick = c;
+    if (pick) triggers_apply(pick, (pick.vendorName ?: @"controller").UTF8String);
 }
 
 /* The settings panel (key 1, runtime/settings_panel.h; main queue). TOTK_DUALSENSE_TRIGGERS or an agent's test session decide
@@ -756,12 +791,9 @@ void runtime_triggers_choose(int on) {
     if (!on) {   /* every DualSense's triggers go slack, also one that an earlier pad took the bow from */
         for (GCController *c in GCController.controllers)
             if ([c.extendedGamepad isKindOfClass:GCDualSenseGamepad.class]) { GCDualSenseGamepad *p = (GCDualSenseGamepad *)c.extendedGamepad; [p.leftTrigger setModeOff]; [p.rightTrigger setModeOff]; }
-        triggerPad = nil; fprintf(stderr, "[triggers] off (settings): both triggers slack\n"); return;
+        triggerPad = nil; r2Resists = NO; fprintf(stderr, "[triggers] off (settings): both triggers slack\n"); return;
     }
-    if (triggerPad) return;
-    GCController *pick = [GCController.current.extendedGamepad isKindOfClass:GCDualSenseGamepad.class] ? GCController.current : nil;   /* the pad in use */
-    for (GCController *c in GCController.controllers) if (!pick && [c.extendedGamepad isKindOfClass:GCDualSenseGamepad.class]) pick = c;
-    if (pick) triggers_apply(pick, (pick.vendorName ?: @"controller").UTF8String);
+    triggers_pick(nil);
 }
 
 /* ---- motion from the input reports of a pad GameController gives none (2026-10-23): runtime/hid_imu.h ---- */
@@ -859,7 +891,7 @@ void runtime_feedback_detach(GCController *c) {   /* main queue */
     hid_rumble_detach(c);
     if (runtime_rumble_enabled() && rumbleQueue)
         dispatch_async(rumbleQueue, ^{ if (rumblePad == c) { for (int s = 0; s < 2; s++) forget_side(s); rumblePad = nil; } });
-    if (triggerPad && c.extendedGamepad == triggerPad) triggers_off();
+    if (triggerPad && c.extendedGamepad == triggerPad) { triggers_off(); triggers_pick(c); }   /* e.g. USB unplugged, Bluetooth still on */
     if (hidRumblePad == c) hid_rumble_stop();
     if (motionPad == c) {
         c.motion.valueChangedHandler = nil; hid_motion_stop(); motionPad = nil; runtime_motion_live(0);
