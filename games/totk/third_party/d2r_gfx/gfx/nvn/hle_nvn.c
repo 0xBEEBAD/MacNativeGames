@@ -1179,7 +1179,10 @@ static int inline_bulk_on(void) {
     int v = atomic_load_explicit(&g_inline_bulk_on, memory_order_relaxed);
     if (v < 0) {
         const char *e = getenv("TOTK_INLINE_BULK"); int expected = -1;
-        atomic_compare_exchange_strong(&g_inline_bulk_on, &expected, e ? strcmp(e, "0") != 0 : !TOTK_BOTW_BUILD);   // default on since 2026-10-21 (TOTK; Breath of the Wild =1); TOTK_INLINE_BULK=0 off
+        /* Default on since 2026-10-21 (TOTK) and 2026-10-27 (Breath of the Wild 1.6.0, Hebra, same-run flag A/B: frame
+           9.09 / 9.14 -> 8.96 / 8.98 ms and 9.30 / 9.36 -> 9.08 / 9.10 ms; the record-by-record copy was 9% of its main
+           thread). TOTK_INLINE_BULK=0 off. */
+        atomic_compare_exchange_strong(&g_inline_bulk_on, &expected, e ? strcmp(e, "0") != 0 : 1);
         v = atomic_load_explicit(&g_inline_bulk_on, memory_order_relaxed);
     }
     return v;
@@ -2132,7 +2135,7 @@ static win_t *g_xp_win; static uint64_t g_xp_job[4];   // job number of each swa
 static _Atomic uint64_t g_x_drains, g_x_drain_ns;
 static int async_replay(void) {
     static int v = -1;
-    if (v < 0) { const char *e = getenv("TOTK_ASYNC_REPLAY"); v = e ? atoi(e) > 0 : TARGET_OS_OSX && !TOTK_BOTW_BUILD;   /* Breath of the Wild: not measured with it yet, =1 turns it on */ if (v) LOG("[nvn] 翻译线程：提交与出图排队交给独立线程回放（TOTK_ASYNC_REPLAY=0 关）"); }
+    if (v < 0) { const char *e = getenv("TOTK_ASYNC_REPLAY"); v = e ? atoi(e) > 0 : TARGET_OS_OSX && !TOTK_BOTW_BUILD;   /* Breath of the Wild: off, 2026-10-27 1.6.0 Hebra 9.30 / 9.08 ms against 9.09 / 8.96 without it, no gain; =1 turns it on */ if (v) LOG("[nvn] 翻译线程：提交与出图排队交给独立线程回放（TOTK_ASYNC_REPLAY=0 关）"); }
     return v;
 }
 static void submit_exec(int n, const uint64_t *h, void *ucap);
@@ -2556,6 +2559,12 @@ static void dump_frame(void) {
     if (g_frame <= (uint64_t)nframes) LOG("[nvn] %s %llu：%u 个函数 %llu 次调用 |%s", g_frame ? "帧" : "初始化", g_frame, nfn, total, line);
     else if (g_frame % 300 == 0) LOG("[nvn] 帧 %llu：%u 个函数 %llu 次调用", g_frame, nfn, total);
     g_frame++; g_frame_pub = g_frame; cs_dump();
+    /* TOTK_BENCH_FRAMES=<file> (benchmark, 2026-10-20): "<frame> <ns>" at every game frame, on the clock the survey
+       reports use (scripts/bench_run.py cuts the run into its fly segments by those frame numbers). */
+    { static FILE *bf; static int on = -1;
+      if (on < 0) { const char *e = getenv("TOTK_BENCH_FRAMES"); on = e && *e && (bf = fopen(e, "w")) != NULL; }
+      if (on) { fprintf(bf, "%llu %llu\n", (unsigned long long)g_frame, (unsigned long long)clock_gettime_nsec_np(CLOCK_UPTIME_RAW));
+                if (!(g_frame % 60)) fflush(bf); } }
     { void runtime_watch_tick(uint64_t); runtime_watch_tick(g_frame); }   // TOTK diagnostic write watchpoint (TOTK_WATCH_ADDR)
     // 每 300 帧读一次常驻内存，交图形层打内存读数行（mtl_mem_stat，低频封顶）。内存看门狗：常驻超过上限就报红自行退出——只在 Mac 宿主上缺省开（24 GB：宿主内存失控
     // 会把整机拖进内核崩溃，同机别的程序两次如此），或测试时用 DM_MEM_CAP_GB=<整数> 指定；玩家的 iOS 包不设上限（被系统杀之前自己退没有意义，反而多一种闪退）
