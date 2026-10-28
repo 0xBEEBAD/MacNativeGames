@@ -3,6 +3,7 @@
 #include "threads.c"
 #include "nvn_impl.h"
 #include "nvn_obj.h"
+#include "totk_timeline.h"   /* WB_WAIT_GPU's timeline events (d1966c5); threads.c has the weak totk_tl_on / totk_tl */
 #include <assert.h>
 #include <stdatomic.h>
 
@@ -11,6 +12,7 @@ uint64_t runtime_now_ns(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); 
 uint64_t runtime_hle_tsd_off;
 int runtime_guest_code_pc(uint64_t pc) { (void)pc; return 0; }
 pthread_key_t runtime_keys[8];
+int botw_wb_staged_skip_on(void) { return 1; }   /* nvn_mtl.m's default: staged lists do not wait for the uploads */
 
 typedef struct { BOTW_WB_ENT_FIELDS } wb_ent;
 static thr_t caller, worker;
