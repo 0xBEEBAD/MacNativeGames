@@ -4,7 +4,7 @@ Analysis date: 2026-10-27. Repository examined: `8c9c71b9503f9b7d9643a4f45aa8fbc
 
 **Decision: build the macOS port from `games/jamboree`'s isolated nxnative runtime and Mac packaging approach. Restore and validate the Age of Calamity profile from the exact nxnative revision that Jamboree imported.** Use Bayonetta's staged bring-up method and the other ports' verification and shader-preparation lessons.
 
-This directory currently contains planning documents only. No Age of Calamity runtime, app, input manifest, or gameplay result has been produced. The ready-to-use implementation brief is [NEXT_THREAD_PROMPT.md](NEXT_THREAD_PROMPT.md).
+This is the analysis written before the port was made (kept as its record); the port itself and what it does now are in [README.md](README.md) and [VALIDATION.md](VALIDATION.md).
 
 ## Scope and strength of evidence
 
@@ -179,4 +179,4 @@ Logs from the final runs are local temporary artifacts: `/private/tmp/macnative-
 
 Use **Jamboree's pinned nxnative runtime plus its isolated Mac build/package structure**, restore the matching target profile, and explicitly correct the shader mode and target memory/profile gates. Use Bayonetta's fail-at-the-first-real-gap method, TOTK/Odyssey's offline shader and measured-cache discipline, Smash's ABI scrutiny, and Unicorn's independent-build/save-validation standard.
 
-The next thread should implement and validate this target, beginning with available original-input paths and dependency preflight. It should not repeat a general port survey, rewrite an emulator, copy Zelda game addresses, or spend its first milestone on enhancement settings. Paste [NEXT_THREAD_PROMPT.md](NEXT_THREAD_PROMPT.md) into that thread.
+The next thread should implement and validate this target, beginning with available original-input paths and dependency preflight. It should not repeat a general port survey, rewrite an emulator, copy Zelda game addresses, or spend its first milestone on enhancement settings.
