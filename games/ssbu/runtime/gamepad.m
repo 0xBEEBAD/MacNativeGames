@@ -483,28 +483,38 @@ void runtime_mouse_release(void) {   /* main thread: the window let the pointer 
 #if TARGET_OS_OSX
 /* macOS counts the keyboard and the mouse as the user's activity, not a game controller: a player using only the
    controller got the screen saver in the middle of a fight (Q128, 28.10.; pmset listed no display-sleep assertion from
-   the game). While the controller's state keeps changing, the game holds a PreventUserIdleDisplaySleep assertion; five
-   minutes without a change release it, so a Mac left alone still sleeps. A stick resting in its dead zone reads 0 and
-   changes nothing. */
-enum { AWAKE_IDLE_S = 300, AWAKE_CHECK_S = 30 };
+   the game). While the controller's state keeps changing, the game holds a PreventUserIdleDisplaySleep assertion; it is
+   let go once the controller has been still for the Mac's own screen saver time (System Settings, read from
+   com.apple.screensaver idleTime of this host; 300 s when none is set), so the screen saver then comes as it would after
+   the last key press, and a Mac left alone still sleeps. A stick resting in its dead zone reads 0 and changes nothing. */
+enum { AWAKE_DEFAULT_IDLE_S = 300, AWAKE_CHECK_S = 15 };
 static _Atomic uint64_t awakeLastInput;   /* ns */
 static _Atomic int awakeWanted;           /* set by the first input, cleared when the assertion is let go */
 static IOPMAssertionID awakeAssertion;    /* main queue */
 static int awakeHeld;                     /* main queue */
+static int awakeIdleS;                    /* main queue: the screen saver time read when the assertion was taken */
+static int awake_screen_saver_s(void) {
+    CFPropertyListRef v = CFPreferencesCopyValue(CFSTR("idleTime"), CFSTR("com.apple.screensaver"), kCFPreferencesCurrentUser, kCFPreferencesCurrentHost);
+    int s = 0;
+    if (v && CFGetTypeID(v) == CFNumberGetTypeID()) CFNumberGetValue((CFNumberRef)v, kCFNumberIntType, &s);
+    if (v) CFRelease(v);
+    return s > 0 ? s : AWAKE_DEFAULT_IDLE_S;
+}
 static void awake_check(void) {
-    if (runtime_now_ns() - atomic_load(&awakeLastInput) < (uint64_t)AWAKE_IDLE_S * 1000000000ull) {
+    if (runtime_now_ns() - atomic_load(&awakeLastInput) < (uint64_t)awakeIdleS * 1000000000ull) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)AWAKE_CHECK_S * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ awake_check(); });
         return;
     }
     if (awakeHeld) { IOPMAssertionRelease(awakeAssertion); awakeHeld = 0; }
     atomic_store(&awakeWanted, 0);
-    fprintf(stderr, "[totk-input] display may sleep again: no controller input for %d s\n", AWAKE_IDLE_S);
+    fprintf(stderr, "[totk-input] display may sleep again: no controller input for %d s\n", awakeIdleS);
 }
 static void awake_take(void) {
+    awakeIdleS = awake_screen_saver_s();
     IOReturn r = IOPMAssertionCreateWithName(kIOPMAssertPreventUserIdleDisplaySleep, kIOPMAssertionLevelOn,
                                              CFSTR("Super Smash Bros. Ultimate: controller in use"), &awakeAssertion);
     awakeHeld = r == kIOReturnSuccess;
-    if (awakeHeld) fprintf(stderr, "[totk-input] display kept awake while the controller is in use\n");
+    if (awakeHeld) fprintf(stderr, "[totk-input] display kept awake while the controller is in use (let go after %d s without input)\n", awakeIdleS);
     else fprintf(stderr, "[totk-input] display-sleep assertion failed: 0x%08x\n", r);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)AWAKE_CHECK_S * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ awake_check(); });
 }
