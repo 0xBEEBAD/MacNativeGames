@@ -98,11 +98,13 @@ def main():
     if botw:   # game_patches_botw.c instead of both Tears of the Kingdom files; GAME_BOTW for the runtime and the graphics layer
         project=project.replace('          - game_patches_botw.c','          - game_patches.c\n          - game_patches_v143.c')
         project=project.replace('-I../build\n','-I../build -DGAME_BOTW=1 -DGAME_'+a.version.upper()+'=1\n')
-        # The Settings pane without Tears of the Kingdom's Full HD switch (main.m reads it for that game only).
+        # The Settings pane with the Full HD switch described for this game: its docked scene is 1920x1080, not 1600x900.
         settings=gen/'Settings.bundle'; shutil.rmtree(settings,ignore_errors=True); shutil.copytree(ios/'Settings.bundle',settings)
         root=plistlib.loads((settings/'Root.plist').read_bytes()); specs=root['PreferenceSpecifiers']
         at=next(i for i,s in enumerate(specs) if s.get('Key')=='TOTK_DOCKED')
-        del specs[at-1:at+1]   # the switch and its group
+        specs[at-1]['FooterText']=('開啟：遊戲的底座設定，輸出和畫面都是 1920×1080，需要較快的 iPad（M 系列）。關閉：手持 1280×720（內部 960×540）。'
+                                   '重新啟動遊戲後生效 · on: the game\'s docked settings, 1920×1080 output and scene (for an M-series iPad). '
+                                   'Off: handheld 1280×720 (960×540 inside). Takes effect after relaunching the game')
         (settings/'Root.plist').write_bytes(plistlib.dumps(root))
         project=project.replace('      - Settings.bundle','      - path: Gen/Settings.bundle',1)
     elif a.version=='v143': project=project.replace('          - loader.c','          - loader.c\n          - game_patches.c')
