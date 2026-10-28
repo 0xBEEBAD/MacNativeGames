@@ -24,7 +24,7 @@ Build prerequisites:
 - Python 3.12 or later with `lz4`, `capstone` and `fonttools` (and `backports.zstd` before Python 3.14), for example in a virtual environment outside the checkout.
 - .NET SDK **10**, `make`, `clang` and `zstd` (Homebrew) on `PATH`. glslang and xcodegen are not needed.
 - A **local LibHac 0.19.0 NuGet package**, passed with `--libhac-package`. SHA-256 `1431267861db5ff68216315b164f10c0edab4df162cedf5429bf8a143b76de19` (nuget.org's `libhac.0.19.0.nupkg`). It is a build prerequisite like .NET and the Python packages, not redistributed here. The build never downloads it: `nx_extract` restores from a NuGet configuration that clears every other feed and fallback folder.
-- The shader translator and SPIRV-Cross are carried as **binaries only** under `prebuilt/`, with SHA-256 checksums and upstream provenance.
+- The shader translator is carried as **binaries only** under `prebuilt/`, with SHA-256 checksums and upstream provenance; SPIRV-Cross is built at packaging from its pinned release (fetched from GitHub).
 - Your own **base game NSP** and **4.0.1 update NSP** (`v1507328`), and your own `prod.keys`. They are private build inputs; this repository supplies none of them.
 
 Put both NSPs in one folder; other files there, such as add-on content, are ignored. The base game and the update are told apart by their tickets (else the `[title ID]` in the file name), and the update must be 4.0.1. After extraction and before rewriting, every file of the 4.0.1 ExeFS is checked against its size, SHA-256 and build ID in [expected-4.0.1.json](assets/expected-4.0.1.json); a filename alone cannot pass. Other updates, add-on content (the Booster Course Pass) and XCI or NSZ inputs are outside this target's scope.
@@ -92,6 +92,6 @@ The first runs synthetic build tests (tool checksums, input selection, the title
 | `runtime/mac`, `runtime/ios/Sources` | Mac app packer, launcher and settings window (with the two launcher sources it links) |
 | `runtime/games/0100152000022000` | The game profile (4.0.1), its prewarm list and nxnative's game notes |
 | `runtime/third_party` | libvpx (VP9), stb_vorbis, Vulkan headers, MacNativeGames license |
-| `prebuilt/macos-arm64` | Locked shader translator and SPIRV-Cross binaries with checksums; no game shaders |
+| `prebuilt/macos-arm64` | Locked shader translator binaries with checksums, SPIRV-Cross's licenses; no game shaders |
 | `third_party/nxnative` | Pinned upstream build orchestrator with this target's gates, license, import manifest and local patch |
 | `scripts`, `assets`, `tests` | Build wrapper, GPU test runner, input pins, synthetic tests |

@@ -58,12 +58,23 @@ class BuildTests(unittest.TestCase):
             build.stage(work, feed)
             self.assertEqual(table.read_text(), 'generated locally')
             self.assertTrue((source / 'dm/tools/nx_extract/Program.cs').is_file())
-            for exe in ('dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate', 'dm/gfx/tools/spirv_cross_bin/spirv-cross'):
+            self.assertFalse((source / 'dm/gfx/tools/spirv_cross_bin/spirv-cross').exists())   # built after staging (build_spirv_cross)
+            for exe in ('dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate',):
                 self.assertTrue((source / exe).stat().st_mode & 0o111, exe)
             self.assertIn(f'value="{feed}"', (source / 'NuGet.Config').read_text())
             self.assertIn('<clear />', (source / 'NuGet.Config').read_text())
             chain = subprocess.check_output([sys.executable, str(source / 'dm/gfx/tools/dmsh_chain.py')], text=True).strip()
             self.assertIn(f'"{chain}"', (source / 'dm/gfx/nvn/dmsh_chain.h').read_text())
+
+    def test_spirv_cross_is_built_from_its_pinned_release(self):
+        # no binary is carried (after PR #1226): the lock pins the --revision the build writes, from the release and commit time
+        self.assertFalse((GAME / 'prebuilt/macos-arm64/spirv_cross/spirv-cross').exists())
+        lock = dict(l.rstrip('\n').split('\t', 1) for l in (GAME / 'runtime/gfx/tools/dmsh_chain.lock').read_text().splitlines(True)
+                    if '\t' in l and not l.startswith('#'))
+        self.assertEqual(lock['spirv-cross'], build.SPIRV_CROSS_REVISION)
+        header = build.spirv_cross_header('vulkan-sdk-1.4.363.0', 1789558039)   # f11ba9f's commit time
+        self.assertIn(f'"{build.SPIRV_CROSS_REVISION}"', header)
+        self.assertEqual(build.SPIRV_CROSS[1], 'vulkan-sdk-1.4.363.0')
 
     def test_chain_header_matches_runtime(self):
         chain = subprocess.check_output([sys.executable, str(GAME / 'runtime/gfx/tools/dmsh_chain.py')], text=True).strip()

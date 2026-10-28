@@ -89,16 +89,6 @@
       "sha256": "8f25018489d6fe0dec34a352314c38dc146247b7de65735790f4398a92afa84b"
     },
     {
-      "source": "dm/gfx/tools/spirv_cross_bin/build.sh",
-      "destination": "prebuilt/macos-arm64/spirv_cross/build.sh",
-      "sha256": "444c3d508317dfaf67f51f6cf34eea7df74783022da59188f306eba11d1e8b3e"
-    },
-    {
-      "source": "dm/gfx/tools/spirv_cross_bin/spirv-cross",
-      "destination": "prebuilt/macos-arm64/spirv_cross/spirv-cross",
-      "sha256": "e37945d8e441d34dc2ce2d90b77d9a29ea4d36392a8f2e492f668aeae7dd904a"
-    },
-    {
       "source": "dm/games/0100152000022000/README.md",
       "destination": "runtime/games/0100152000022000/README.md",
       "sha256": "22561322a066064df9773127f55775d48868e0d93b1e91c6da6f4dd74f09b069",
@@ -1024,7 +1014,8 @@
     {
       "source": "dm/gfx/tools/dmsh_chain.lock",
       "destination": "runtime/gfx/tools/dmsh_chain.lock",
-      "sha256": "8bcfeafc4564bb999907a9cf702613d58f44120d86621937ff499d16a508df43"
+      "sha256": "8bcfeafc4564bb999907a9cf702613d58f44120d86621937ff499d16a508df43",
+      "modified": "local-changes.patch"
     },
     {
       "source": "dm/gfx/tools/dmsh_chain.py",
@@ -3259,6 +3250,8 @@
     "dm/games/0100152000022000/pso_pairs.tsv",
     "dm/games/0100152000022000/shader_facts.tsv",
     "dm/games/0100152000022000/shader_map.tsv",
-    "dm/games/0100152000022000/shader_pairs.tsv"
+    "dm/games/0100152000022000/shader_pairs.tsv",
+    "dm/gfx/tools/spirv_cross_bin/build.sh",
+    "dm/gfx/tools/spirv_cross_bin/spirv-cross"
   ]
 }

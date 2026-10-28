@@ -1,14 +1,26 @@
 diff --git a/dm/gfx/nvn/dmsh_chain.h b/dm/gfx/nvn/dmsh_chain.h
-index 8552c74..f192084 100644
+index 8552c74..7256eff 100644
 --- a/dm/gfx/nvn/dmsh_chain.h
 +++ b/dm/gfx/nvn/dmsh_chain.h
 @@ -1,3 +1,3 @@
  // Generated file (dm/gfx/tools/dmsh_chain.py --header): the B shader library translation chain version this source tree expects (default options), one for every game;
  // the host loads only <library dir>/b-<V>/. Run dmsh_chain.py --header after changing the chain's tools and commit this file with the change
 -#define DMSH_CHAIN "a78f966a7b38"
-+#define DMSH_CHAIN "fd8ba7b84f3c"
++#define DMSH_CHAIN "d9fda03e8b0d"
+diff --git a/dm/gfx/tools/dmsh_chain.lock b/dm/gfx/tools/dmsh_chain.lock
+index a379d39..b2d0c91 100644
+--- a/dm/gfx/tools/dmsh_chain.lock
++++ b/dm/gfx/tools/dmsh_chain.lock
+@@ -3,6 +3,6 @@ dmsh_xlate.dll	dbc483247a4cb22d
+ Ryujinx.Graphics.Shader.dll	ec7846f7f71a9eba
+ Ryujinx.Common.dll	971cd2b48bf2eccf
+ xlate_source	f21af1efa737a270
+-spirv-cross	e37945d8e441d34d
++spirv-cross	Git commit: vulkan-sdk-1.4.363.0 Timestamp: 2026-09-16T11:27:19
+ metal_macosx	Apple metal version 32023.921 (metalfe-32023.921.6)
+ metal_iphoneos	Apple metal version 32023.921 (metalfe-32023.921.6)
 diff --git a/dm/gfx/tools/dmsh_chain.py b/dm/gfx/tools/dmsh_chain.py
-index f3561a3..39c057c 100644
+index f3561a3..5d7c73f 100644
 --- a/dm/gfx/tools/dmsh_chain.py
 +++ b/dm/gfx/tools/dmsh_chain.py
 @@ -15,10 +15,11 @@
@@ -27,7 +39,28 @@ index f3561a3..39c057c 100644
      'Instructions/InstEmitSurface.cs', 'IntermediateRepresentation/TextureFlags.cs',
      'Translation/TranslationFlags.cs', 'Translation/HostCapabilities.cs',
      'Translation/Transforms/GeometryToCompute.cs', 'Translation/TranslatorContext.cs', 'Translation/Translator.cs', 'Translation/EmitterContext.cs', 'Translation/ShaderDefinitions.cs', 'CodeGen/Spirv/Instructions.cs',
-@@ -95,13 +96,13 @@ def tools_now():
+@@ -28,7 +29,8 @@ LOCK = os.path.join(HERE, 'dmsh_chain.lock'); HEADER = os.path.join(GFX, 'nvn/dm
+ STAMP = 'inputs.tsv'   # in the library directory b-<V>/
+ # the translator defaults to the in-repo build that matches the lock file (a rebuilt dll has different fingerprints)
+ XLATE_DIR = os.path.dirname(os.environ.get('XLATE', os.path.join(HERE, 'dmsh_xlate_bin/dmsh_xlate')))
+-# spirv-cross likewise: the in-repo build (spirv_cross_bin/build.sh, a pinned upstream commit) that matches the lock file, not the one on PATH, so every Mac converts with the same build
++# spirv-cross likewise: the build scripts/build_mk8d.py makes at packaging from a pinned upstream release (not the one on PATH); the lock pins its --revision, the release and commit
++# time, not its bytes, which differ between compilers (MacNativeGames games/mk8d, after PR #1226)
+ SPIRV_CROSS = os.environ.get('SPIRV_CROSS', os.path.join(HERE, 'spirv_cross_bin/spirv-cross'))
+ 
+ def options():
+@@ -89,19 +91,23 @@ def tools_now():
+     for dll in ('dmsh_xlate.dll', 'Ryujinx.Graphics.Shader.dll', 'Ryujinx.Common.dll'): t[dll] = sha16(os.path.join(XLATE_DIR, dll))
+     t['xlate_source'] = subprocess.run([os.path.join(XLATE_DIR, 'dmsh_xlate'), '--source-sha'], capture_output=True, text=True).stdout.strip()
+     sc = shutil.which(SPIRV_CROSS)
+-    t['spirv-cross'] = sha16(sc) if sc else 'missing'
++    if sc:
++        r = subprocess.run([sc, '--revision'], capture_output=True, text=True)
++        t['spirv-cross'] = (r.stderr.strip() or r.stdout.strip() or 'unknown') if r.returncode == 0 else 'unknown'
++    else:
++        t['spirv-cross'] = 'missing'
+     for sdk in ('macosx', 'iphoneos'):
+         t['metal_' + sdk] = subprocess.run(['xcrun', '-sdk', sdk, 'metal', '--version'], capture_output=True, text=True).stdout.splitlines()[0:1] or ['missing']
          t['metal_' + sdk] = t['metal_' + sdk][0]
      return t
  
@@ -44,7 +77,7 @@ index f3561a3..39c057c 100644
      return bad
  
  def header_text(v):
-@@ -113,7 +114,7 @@ if __name__ == '__main__':
+@@ -113,7 +119,7 @@ if __name__ == '__main__':
      a = sys.argv[1:]
      if a == ['--update-lock']:
          t = tools_now()

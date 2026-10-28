@@ -17,6 +17,17 @@ APP_NAME = 'Mario Kart 8 Deluxe'
 BUNDLE_ID = 'org.macnativegames.mk8d'
 LIBHAC_SHA256 = '1431267861db5ff68216315b164f10c0edab4df162cedf5429bf8a143b76de19'
 PREBUILT = {'dmsh_xlate': 'dm/gfx/tools/dmsh_xlate_bin', 'spirv_cross': 'dm/gfx/tools/spirv_cross_bin'}
+# SPIRV-Cross is built here from its pinned release, not carried as a binary (MacNativeGames 2026-10-28: tools whose source
+# builds in minutes are built at packaging, as build_app.py does; after PR #1226). The sources and flags are those of its own
+# CMake Release build of the program, without CMake; gitversion.h is written as CMake writes it, so `spirv-cross --revision`
+# names the release and its commit time, which dmsh_chain.lock pins (another compiler gives other bytes, the same output:
+# 1,204 of 1,204 shaders identical against the binary the PR carried).
+SPIRV_CROSS = ('https://github.com/KhronosGroup/SPIRV-Cross.git', 'vulkan-sdk-1.4.363.0', 'f11ba9f0b21ba8fc15153d50a2a1ae31ab1cf8f7')
+SPIRV_CROSS_REVISION = 'Git commit: vulkan-sdk-1.4.363.0 Timestamp: 2026-09-16T11:27:19'
+SPIRV_CROSS_SOURCES = ('main.cpp', 'spirv_cfg.cpp', 'spirv_cpp.cpp', 'spirv_cross.cpp', 'spirv_cross_parsed_ir.cpp',
+                       'spirv_cross_util.cpp', 'spirv_glsl.cpp', 'spirv_hlsl.cpp', 'spirv_msl.cpp', 'spirv_parser.cpp',
+                       'spirv_reflect.cpp')
+SPIRV_CROSS_FLAGS = ('-O3', '-DNDEBUG', '-std=c++11', '-arch', 'arm64', '-DHAVE_SPIRV_CROSS_GIT_VERSION')
 LANGUAGES = ('en-US', 'en-GB', 'ja', 'fr', 'de', 'es-419', 'es', 'it', 'nl', 'fr-CA', 'pt', 'ru', 'ko', 'zh-Hant', 'zh-Hans')
 
 
@@ -78,6 +89,48 @@ def stage(work, feed):
         f'  <packageSources><clear /><add key="mk8d-local" value="{feed}" /></packageSources>\n'
         '  <fallbackPackageFolders><clear /></fallbackPackageFolders>\n</configuration>\n')
     return source
+
+
+def spirv_cross_header(tag, commit_epoch):
+    """gitversion.h as SPIRV-Cross's CMake build writes it (cmake/gitversion.in.h): the release and its commit time in UTC."""
+    import datetime
+    stamp = datetime.datetime.fromtimestamp(int(commit_epoch), datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+    return (f'#ifndef SPIRV_CROSS_GIT_VERSION_H_\n#define SPIRV_CROSS_GIT_VERSION_H_\n'
+            f'#define SPIRV_CROSS_GIT_REVISION "Git commit: {tag} Timestamp: {stamp}"\n#endif\n')
+
+
+def spirv_cross_revision(exe):
+    result = subprocess.run([str(exe), '--revision'], capture_output=True, text=True)
+    return (result.stderr.strip() or result.stdout.strip()) if result.returncode == 0 else ''
+
+
+def build_spirv_cross(work, destination):
+    """destination/spirv-cross from the pinned SPIRV-Cross release with clang (no CMake), kept while --revision matches."""
+    exe = destination / 'spirv-cross'
+    if exe.is_file() and spirv_cross_revision(exe) == SPIRV_CROSS_REVISION:
+        return exe
+    url, tag, commit = SPIRV_CROSS
+    src = work / 'tooling/spirv-cross'
+    have = subprocess.run(['git', '-C', str(src), 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip() if src.is_dir() else ''
+    if have != commit:
+        shutil.rmtree(src, ignore_errors=True)
+        src.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(['git', 'clone', '--quiet', '--depth', '1', '--branch', tag, url, str(src)], check=True)
+        have = subprocess.run(['git', '-C', str(src), 'rev-parse', 'HEAD'], capture_output=True, text=True, check=True).stdout.strip()
+        if have != commit:
+            raise ValueError(f'SPIRV-Cross {tag} is commit {have}, not the pinned {commit}')
+    epoch = subprocess.run(['git', '-C', str(src), 'log', '-1', '--format=%ct'], capture_output=True, text=True, check=True).stdout
+    gen, objs = work / 'tooling/spirv-cross-gen', work / 'tooling/spirv-cross-obj'
+    gen.mkdir(parents=True, exist_ok=True); objs.mkdir(parents=True, exist_ok=True)
+    (gen / 'gitversion.h').write_text(spirv_cross_header(tag, epoch))
+    for name in SPIRV_CROSS_SOURCES:
+        subprocess.run(['xcrun', 'clang++', *SPIRV_CROSS_FLAGS, '-I', str(gen), '-c', str(src / name), '-o', str(objs / (name + '.o'))], check=True)
+    destination.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['xcrun', 'clang++', '-arch', 'arm64', *[str(objs / (n + '.o')) for n in SPIRV_CROSS_SOURCES], '-o', str(exe)], check=True)
+    got = spirv_cross_revision(exe)
+    if got != SPIRV_CROSS_REVISION:
+        raise ValueError(f'the spirv-cross just built says {got!r}, not {SPIRV_CROSS_REVISION!r}')
+    return exe
 
 
 def pfs0_names(path):
@@ -179,6 +232,7 @@ def main():
     work.mkdir(parents=True, exist_ok=True)
     feed = prepare_offline_dependencies(work, args.libhac_package)
     source = stage(work, feed)
+    build_spirv_cross(work, source / PREBUILT['spirv_cross'])
     inputs = link_inputs(args.inputs.expanduser().resolve(), work)
     env = environment(work)
     subprocess.run([sys.executable, str(source / 'scripts/build_ipa_from_nsp.py'), str(inputs),
