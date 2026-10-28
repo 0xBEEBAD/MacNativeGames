@@ -2697,6 +2697,9 @@ void dm_gfx_set_flag(const char *name, int v) {
     if (!strcmp(name, "deferred")) { extern void nvn_set_deferred_binds(int on); nvn_set_deferred_binds(v); return; }
     if (!strcmp(name, "framewait")) { extern void nvn_set_framewait(int on); nvn_set_framewait(v); return; }
     if (!strcmp(name, "sync_lag")) { extern void nvn_set_sync_lag(int on); nvn_set_sync_lag(v); return; }
+#ifdef GAME_BOTW
+    if (!strcmp(name, "wb_staged_nowait")) { extern void botw_wb_set_staged_skip(int on); botw_wb_set_staged_skip(v); return; }
+#endif
     if (!strcmp(name, "uncapped_interval")) { extern void nvn_set_uncapped_interval(int on); nvn_set_uncapped_interval(v); return; }
     if (!strcmp(name, "occl_visible")) { atomic_store(&g_occl_vis, v); MLOG("[flag] occl_visible = %d", v); return; }
     if (!strcmp(name, "drvfill")) { atomic_store(&g_drvfill_on, v != 0); MLOG("[flag] drvfill = %d", v != 0); return; }
@@ -17405,10 +17408,17 @@ void botw_wb_stage_encode(void) {
     }
     g_wb_nsub = 0;
 }
+static _Atomic int g_wb_staged_skip = -1;
+int botw_wb_staged_skip_on(void) {
+    int v = atomic_load_explicit(&g_wb_staged_skip, memory_order_relaxed);
+    if (v < 0) { const char *e = getenv("TOTK_WB_STAGED_NOWAIT"); v = !(e && !strcmp(e, "0")); atomic_store(&g_wb_staged_skip, v); }
+    return v;
+}
+void botw_wb_set_staged_skip(int on) { atomic_store(&g_wb_staged_skip, on != 0); MLOG("[flag] wb_staged_nowait = %d", on != 0); }
 /* wb_write_list: an entry staged after its last rendering is swizzled from its stage (the caller waited for the fence) */
 int botw_wb_from_stage(void *ev) {
     wb_ent *e = ev; const tex_t *t = &e->t;
-    if (!e->stage || e->stage_fence < e->fence) return -1;
+    if (!WB_STAGED(e)) return -1;
     /* ARC retains and autoreleases the receiver of -contents (NS_RETURNS_INNER_POINTER), and the game's thread has no
        autorelease pool to drain it (wb_level_back): without this pool no stage buffer was ever freed (2.9 GB of GPU
        memory in 25 minutes). */
