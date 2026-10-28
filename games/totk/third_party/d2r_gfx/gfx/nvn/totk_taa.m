@@ -600,7 +600,7 @@ static id<MTLRenderPipelineState> up_copy_ps(MTLPixelFormat f) {   // our output
             "  float3 b = t.read(uint2(p.x, p.y > 0 ? p.y - 1 : 0)).rgb, d = t.read(uint2(p.x > 0 ? p.x - 1 : 0, p.y)).rgb;\n"
             "  float3 f = t.read(uint2(min(p.x + 1, hi.x), p.y)).rgb, h = t.read(uint2(p.x, min(p.y + 1, hi.y))).rgb, e = c.rgb;\n"
             "  if (!all(isfinite(b + d + f + h))) return c;\n"   // a NaN / Inf neighbour stays its own pixel (0 * Inf in the lobe)
-            // FSR 1 RCAS (FsrRcasF): the strongest negative lobe for which the cross (centre included) does not clip out of [0, 1]
+            // FSR 1 RCAS (FsrRcasF; MIT, games/totk/third_party/licenses/AMD-FidelityFX-MIT.txt): the strongest negative lobe for which the cross (centre included) does not clip out of [0, 1]
             "  float3 mn = saturate(min(min(b, d), min(f, h))), mx = saturate(max(max(b, d), max(f, h))), ec = saturate(e);\n"
             "  float3 lo = max(-(min(mn, ec) / max(4.0 * mx, 1e-4)), (1.0 - max(mx, ec)) / min(4.0 * mn - 4.0, -1e-4));\n"
             "  float lobe = max(-0.1875, min(max(lo.r, max(lo.g, lo.b)), 0.0)) * SHARP;\n"
