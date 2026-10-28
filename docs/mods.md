@@ -142,8 +142,8 @@ patches itself stops the start.
 <a id="data"></a>
 ### The mod's RomFS files: `--install-mod-romfs`
 
-A build does not write to the version folder (`~/Library/Application Support/MacNativeGames/TOTK/mods/<version>`)
-unless this flag is given: the folder may hold another mod's files, or files copied by hand. With the flag, the
+A build does not write to the version folder (`~/Library/Application Support/MacNativeGames/TOTK/mods/<version>`;
+Breath of the Wild's is `BotW/mods/botw160` or `botw190`, see [below](#breath-of-the-wild)) unless this flag is given: the folder may hold another mod's files, or files copied by hand. With the flag, the
 build replaces it with the mod's `romfs/` and writes its `manifest.tsv`:
 
 ```bash
