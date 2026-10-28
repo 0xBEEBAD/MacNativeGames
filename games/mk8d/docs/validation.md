@@ -38,6 +38,20 @@ Runs of the upstream app with `DM_LAUNCHER=0`, a private save folder, muted Core
 
 ## The port's app
 
+Built with `scripts/build_mk8d.py` (work folder outside the checkout, the LibHac package from a local file): extraction, rewrite and split reused or redone as above, 29,651 of 29,651 Mac shaders ready (13:07: the Metal compiler's own cache had most of them from the upstream build), host 0:25, pipeline archive for `applegpu_g13s` 504.4 MB (6:00), app 13.1 GB, ad-hoc signed; `codesign --verify --deep --strict` passed. The same scripted runs as for the upstream app, each from its own private save folder:
+
+| Run | Keys | Result |
+|---|---|---|
+| First launch | none | The first start of the newly built app waited about 90 s before the launcher ran (its log appeared at 16:03:21 for a start at 16:01:52); the upstream app's first start waited too. Later starts begin at once. Title by frame 900 |
+| Mii pick, fresh save | `f960:L+R~0.3,f1300:Right,f1450:A,f1800:A,f2100:A` | The title, "Select a Mii" with the six default Miis (empty heads), the single-player menu, the class choice with its movie preview; `userdata.dat` written. 70 s of audio, RMS 737, peak 7,856 |
+| Grand Prix, that save, 320 s | `f960:L+R~0.3,f1260:A,f1500:A,f1740:A,f2000:A,f2240:A,f2400:A,f2560:A,f2800:A,f3040:A,f4300:A~280` | 50cc, Mushroom Cup, Mario Kart Stadium: the intro, laps 1–3 (accelerate held, the game's own steering assist on a new save), 1st place, and the results table (Mario 15 points). To frame 18,900: 18,873 frames on screen, 68 dropped, p99 over 16.7 ms in 4 of 63 300-frame windows (worst 33.3 ms), footprint 2.74 GB, flat |
+| Online Play | `…,f1300:Down,f1360:Down,f1420:A,f2000:A` | The online intro, "Connecting…", then back to the main menu; no crash |
+| Wireless Play | `…,f1300:Down,f1360:Down,f1420:Down,f1480:A,f2000:A` | Stays on the main menu, no lobby; no crash |
+
+Every run printed the same single red line as upstream, `[nvn-mtl] [RED] texture ID … not registered`, and no other.
+
+## Played by hand
+
 To be filled in.
 
 ## Known limitations
@@ -46,6 +60,6 @@ To be filled in.
 - Only 4.0.1 with no add-on content: the Booster Course Pass courses are in the update's data, but the game offers them only with the purchased add-on content, which this target does not take.
 - Online play and local wireless are unavailable by design.
 - One `[RED] texture ID … not registered` line per run, also upstream; its effect on the picture was not seen in the runs above.
-- The app is ad-hoc signed; the first launch waits while macOS assesses the 13 GB bundle. Distribution and other Macs were not tested.
+- The app is ad-hoc signed. The first start of a newly built app waited about 90 s before anything ran (both apps, presumably macOS assessing the 13 GB bundle); later starts did not. Distribution and other Macs were not tested.
 
 Screenshots, saves, logs and translated shaders used here are not in Git: they contain or derive from game content.
