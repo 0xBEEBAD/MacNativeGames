@@ -15,9 +15,8 @@ static inline BOOL mng_relevant_path(id value) {
     if (![value isKindOfClass:NSString.class]) return NO;
     NSString *path = value;
     if ([@[@"md", @"rst"] containsObject:path.pathExtension.lowercaseString]) return NO;
-    if ([path hasPrefix:@"games/totk/ios/"] || [path hasPrefix:@"games/totk/tests/"]) return NO;
-    return [path hasPrefix:@"games/totk/"] || [path hasPrefix:@"vendor/"] ||
-        [path isEqualToString:@"build_app.py"] || [path isEqualToString:@"Makefile"];
+    if ([path hasPrefix:@"games/wonder/tests/"]) return NO;
+    return [path hasPrefix:@"games/wonder/"];   // this game builds from its own folder only (after PR #1211)
 }
 
 static inline BOOL mng_comparison_has_update(id value) {

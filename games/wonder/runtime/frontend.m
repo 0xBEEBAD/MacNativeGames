@@ -519,7 +519,7 @@ void runtime_front_run(void(*callback)(void)){
 #ifdef GAME_BOTW
   if(totk_sr_start)totk_sr_start("botw",TOTK_GAME_VERSION);   /* TOTK_STATE_REPORTING=1: starting */
 #else
-  if(totk_sr_start)totk_sr_start("totk",TOTK_GAME_VERSION);
+  if(totk_sr_start)totk_sr_start("wonder",TOTK_GAME_VERSION);   /* Super Mario Bros. Wonder, not Tears of the Kingdom (after PR #1211) */
 #endif
   [NSApplication sharedApplication];[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
   runtime_mouse_set_hook(front_mouse_update);
