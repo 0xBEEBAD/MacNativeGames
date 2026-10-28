@@ -280,18 +280,26 @@ static void hid_pad_detach(void) {
     refresh_gamepads();
 }
 
-static void hid_pad_attach(IOHIDDeviceRef device) {
-    if (hidDevice) return;
+/* Why a pad was not taken: HID_LEFT for good (GameController's, or another pad is in use), HID_NOT_READY may change
+   (Q127: a PowerA that reconnected while Smash ran was never taken again and the log said nothing, because every early
+   return here was silent; the GameController flag read No at once, so the reason is named now instead of guessed). */
+enum { HID_TAKEN, HID_LEFT, HID_NOT_READY };
+static int hid_pad_attach(IOHIDDeviceRef device, char *why, size_t n) {
+    if (hidDevice) { snprintf(why, n, "another HID gamepad is in use"); return HID_LEFT; }
     /* Absent means GameController may well own it; only a definite No says the pad is unreachable otherwise. The flag also
        reads No on pads GameController does adopt (a Bluetooth Switch Pro Controller), so Nintendo, Sony and Microsoft
        devices are left to it. */
     CFTypeRef vendorId = IOHIDDeviceGetProperty(device, CFSTR(kIOHIDVendorIDKey));
     int vid = 0;
     if (vendorId && CFGetTypeID(vendorId) == CFNumberGetTypeID()) CFNumberGetValue((CFNumberRef)vendorId, kCFNumberIntType, &vid);
-    if (vid == 0x057e || vid == 0x054c || vid == 0x045e) return;
+    if (vid == 0x057e || vid == 0x054c || vid == 0x045e) { snprintf(why, n, "vendor 0x%04x is left to GameController", vid); return HID_LEFT; }
     CFTypeRef supported = IOHIDDeviceGetProperty(device, CFSTR("GameControllerSupportedHIDDevice"));
-    if (!supported || CFGetTypeID(supported) != CFBooleanGetTypeID() || CFBooleanGetValue((CFBooleanRef)supported)) return;
-    if (IOHIDDeviceOpen(device, kIOHIDOptionsTypeNone) != kIOReturnSuccess) return;
+    if (!supported) { snprintf(why, n, "GameControllerSupportedHIDDevice not set"); return HID_NOT_READY; }
+    if (CFGetTypeID(supported) != CFBooleanGetTypeID() || CFBooleanGetValue((CFBooleanRef)supported)) {
+        snprintf(why, n, "GameController takes it"); return HID_LEFT;
+    }
+    IOReturn opened = IOHIDDeviceOpen(device, kIOHIDOptionsTypeNone);
+    if (opened != kIOReturnSuccess) { snprintf(why, n, "IOHIDDeviceOpen 0x%08x", opened); return HID_NOT_READY; }
 
     hidDevice = (IOHIDDeviceRef)CFRetain(device);
     const char *name = NULL, *manufacturer = NULL;
@@ -315,11 +323,32 @@ static void hid_pad_attach(IOHIDDeviceRef device) {
     if (hidOrder == GAMEPAD_HID_SWITCH_PRO) fprintf(stderr, ", sticks scaled to their reach, full at %.0f%%", GAMEPAD_HID_FULL_AT * 100);
     fprintf(stderr, "\n");
     refresh_gamepads();
+    return HID_TAKEN;
+}
+
+/* Offers a pad that appeared: one not ready yet is tried again after 0.25, 0.5, 1, 2 and 4 s, then given up; the log
+   names the reason at the first try and at the last. */
+enum { HID_TRIES = 6 };
+static void hid_pad_offer(IOHIDDeviceRef device, int attempt) {
+    char why[128] = "";
+    int taken = hid_pad_attach(device, why, sizeof why);
+    if (taken == HID_TAKEN) { if (attempt) fprintf(stderr, "[totk-input] HID gamepad taken at try %d\n", attempt + 1); return; }
+    CFTypeRef product = IOHIDDeviceGetProperty(device, CFSTR(kIOHIDProductKey));
+    const char *name = product && CFGetTypeID(product) == CFStringGetTypeID() ? [(__bridge NSString *)product UTF8String] : "unknown";
+    if (taken == HID_LEFT) { fprintf(stderr, "[totk-input] HID gamepad not taken: %s: %s\n", name, why); return; }
+    if (attempt + 1 >= HID_TRIES) { fprintf(stderr, "[totk-input] HID gamepad not taken: %s: %s (gave up after %d tries)\n", name, why, HID_TRIES); return; }
+    if (!attempt) fprintf(stderr, "[totk-input] HID gamepad not ready: %s: %s; trying again\n", name, why);
+    CFRetain(device);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * (1 << attempt) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        hid_pad_offer(device, attempt + 1);
+        CFRelease(device);
+    });
 }
 
 static void hid_matched(void *context, IOReturn result, void *sender, IOHIDDeviceRef device) {
     (void)context; (void)sender;
-    if (result == kIOReturnSuccess) hid_pad_attach(device);
+    if (result != kIOReturnSuccess) fprintf(stderr, "[totk-input] HID gamepad matched with result 0x%08x\n", result);
+    hid_pad_offer(device, 0);
 }
 
 static void hid_removed(void *context, IOReturn result, void *sender, IOHIDDeviceRef device) {
