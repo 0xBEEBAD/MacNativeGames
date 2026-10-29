@@ -38,20 +38,17 @@ class ShaderFolder(unittest.TestCase):
         self.assertEqual(storage.shader_dir(GAMES['botw'], home, {}),
                          home / 'Library/Application Support/MacNativeGames/BotW/shader-cache')
 
-    def test_the_environment_moves_it_and_botw_also_reads_the_totk_name(self):
+    def test_the_environment_moves_it_and_botw_reads_the_totk_name(self):
         self.assertEqual(storage.shader_dir(GAMES['totk'], '/Users/me', {'TOTK_SHADER_CACHE': '/c/totk'}),
                          Path('/c/totk'))
-        self.assertEqual(storage.shader_dir(GAMES['botw'], '/Users/me', {'BOTW_SHADER_CACHE': '/c/botw',
-                                                                        'TOTK_SHADER_CACHE': '/c/totk'}),
-                         Path('/c/botw'))
+        self.assertEqual(storage.shader_dir(GAMES['botw'], '/Users/me', {'BOTW_SHADER_CACHE': '/c/botw'}),
+                         Path('/Users/me/Library/Application Support/MacNativeGames/BotW/shader-cache'))   # no such name
         self.assertEqual(storage.shader_dir(GAMES['botw'], '/Users/me', {'TOTK_SHADER_CACHE': '/c/totk'}),
                          Path('/c/totk'))
 
     def test_the_work_variable_is_the_one_the_window_names(self):
         self.assertEqual(storage.shader_env(GAMES['totk']), ('TOTK_SHADER_CACHE', ('TOTK_SHADER_CACHE',)))
-        first, names = storage.shader_env(GAMES['botw'])
-        self.assertEqual(first, 'BOTW_SHADER_CACHE')
-        self.assertIn('TOTK_SHADER_CACHE', names)
+        self.assertEqual(storage.shader_env(GAMES['botw']), ('TOTK_SHADER_CACHE', ('TOTK_SHADER_CACHE',)))   # one launcher
 
 
 class Measure(unittest.TestCase):

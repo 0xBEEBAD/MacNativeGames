@@ -26,7 +26,7 @@ FORMAT = 1
 BACKUP_JSON = 'backup.json'
 HASH_LIMIT = 2 * 1024 * 1024 * 1024       # larger single files are listed by size only, never read whole
 
-PROFILE_ENV = {'totk': 'TOTK_PROFILE_DIR', 'botw': 'BOTW_PROFILE_DIR'}
+PROFILE_ENV = {'totk': 'TOTK_PROFILE_DIR', 'botw': 'TOTK_PROFILE_DIR'}   # one launcher for both games (app/launcher.m)
 NXNATIVE = 'nxnative'
 
 
@@ -216,6 +216,12 @@ def backup(source_path, root, label, game, now, title_id='', with_hash=True):
                   sum(f.size for f in files), title_id), None
 
 
+def _relative(path):
+    """True for a plain relative path with '/' separators and no '..' or empty part."""
+    parts = path.split('/')
+    return bool(path) and not path.startswith('/') and '\\' not in path and all(p not in ('', '.', '..') for p in parts)
+
+
 def read_backup(directory):
     """A backup folder's manifest as a Backup, or None when it is not a backup the builder wrote."""
     directory = Path(directory)
@@ -229,6 +235,8 @@ def read_backup(directory):
     for item in data['files']:
         if not isinstance(item, dict) or not isinstance(item.get('path'), str) or not isinstance(item.get('size'), int):
             return None
+        if not _relative(item['path']):
+            return None                         # a path that would leave the backup or the save folder
         sha = item.get('sha256')
         files.append(SaveFile(item['path'], item['size'], sha if isinstance(sha, str) else None))
     return Backup(directory, str(data.get('game', '')), str(data.get('source', '')),

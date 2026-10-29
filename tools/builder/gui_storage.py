@@ -55,9 +55,11 @@ class StoragePanel:
         key = 'work' if label == 'gui.storage.work' else 'shader'
         clean = FlatButton(buttons, text('gui.storage.clean'), lambda: self.clean(key), font=self.fonts['small'])
         clean.pack(side='left')
-        choose = FlatButton(buttons, text('gui.storage.choose'),
-                            lambda: self.choose_folder(key), font=self.fonts['small'])
-        choose.pack(side='left', padx=(8, 0))
+        choose = None
+        if key == 'work':   # the shader cache stays where the launcher puts it: it reads no folder chosen here
+            choose = FlatButton(buttons, text('gui.storage.choose'),
+                                lambda: self.choose_folder(key), font=self.fonts['small'])
+            choose.pack(side='left', padx=(8, 0))
         return {'frame': frame, 'path': path, 'detail': detail, 'clean': clean, 'choose': choose}
 
     # --- the paths this game uses now (storage.py's own rules) ---
@@ -72,8 +74,7 @@ class StoragePanel:
         saved = self.controller.saved_paths()
         if key == 'work':
             return storage.work_dir(spec, paths.get('game'), saved.work if saved else None)
-        chosen = (getattr(saved, 'extra', None) or {}).get('shader_cache') if saved else None
-        return storage.shader_dir(spec, self.home, self.environ, chosen)
+        return storage.shader_dir(spec, self.home, self.environ)
 
     def _protected(self):
         game, paths = self._game(), self.controller.selection()[1]
@@ -214,12 +215,8 @@ class StoragePanel:
             shown = text(f'gui.storage.refused.{reason}')
             self.status.configure(text=shown, foreground=BAD)
             return
-        if key == 'work':
-            self._pending = new
-            self.controller.save_paths(work=str(new))
-        else:
-            self._pending = new
-            self.controller.save_paths(shader_cache=str(new))
+        self._pending = new
+        self.controller.save_paths(work=str(new))
         if old and old.exists() and new != old and any(old.iterdir()):
             question = text('gui.storage.confirm_move', path=old, target=new)
             if self.confirm(question):
@@ -264,4 +261,5 @@ class StoragePanel:
         for box in self.rows.values():
             state = 'normal' if self._idle else 'disabled'
             box['clean'].configure(state=state)
-            box['choose'].configure(state=state)
+            if box['choose'] is not None:
+                box['choose'].configure(state=state)

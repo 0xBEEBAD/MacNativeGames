@@ -29,6 +29,8 @@ class Locations(unittest.TestCase):
     def test_the_profile_environment_variable_moves_it(self):
         self.assertEqual(saves.profile_dir(GAMES['totk'], '/Users/me', {'TOTK_PROFILE_DIR': '/p/totk'}),
                          Path('/p/totk'))
+        self.assertEqual(saves.profile_dir(GAMES['botw'], '/Users/me', {'TOTK_PROFILE_DIR': '/p/botw'}),
+                         Path('/p/botw'))   # one launcher for both games: the same name
 
     def test_the_default_backup_root_is_in_documents(self):
         self.assertEqual(saves.default_backup_root('/Users/me'),
@@ -119,6 +121,13 @@ class Backup(unittest.TestCase):
     def test_without_hashing_the_manifest_keeps_sizes_only(self):
         backup, _ = saves.backup(self.profile, self.backups, 'totk', 'totk', NOW, with_hash=False)
         self.assertTrue(all(item.sha256 is None for item in backup.files))
+
+    def test_a_manifest_naming_a_path_outside_the_backup_reads_as_none(self):
+        for bad in ('../escape', '/etc/passwd', 'a/../../b', 'a//b', '', 'a\\b'):
+            folder = self.root / f'bad{abs(hash(bad))}'
+            folder.mkdir()
+            (folder / saves.BACKUP_JSON).write_text(json.dumps({'format': saves.FORMAT, 'files': [{'path': bad, 'size': 1}]}))
+            self.assertIsNone(saves.read_backup(folder), bad)
 
     def test_a_folder_that_is_not_a_backup_reads_as_none(self):
         (self.root / 'plain').mkdir()

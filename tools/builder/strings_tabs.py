@@ -283,6 +283,7 @@ TABS = {
     'gui.saves.pre_backup': 'Current save backed up to {path}.',
     'gui.saves.restored': 'Restored {write} files from {backup}.',
     'gui.saves.restore_failed': 'Could not restore: {reason}',
+    'gui.saves.running': 'The game is running: quit it first, or it writes its own save back over the restored one.',
     'gui.saves.not_backup': 'That folder is not a backup this builder made.',
     'gui.saves.no_backups': 'No backups in {path} yet.',
     'gui.saves.list': 'Backups in {path}',

@@ -108,12 +108,13 @@ class StorageTests(Base):
         self.assertNotIn('save_paths', [call[0] for call in self.ctl.calls if isinstance(call, tuple)])
         self.assertIn(text('gui.storage.refused.home'), self.view.storage.status.cget('text'))
 
-    def test_a_saved_shader_cache_folder_is_shown(self):
+    def test_the_shader_cache_is_where_the_launcher_writes_it(self):
         chosen = self.home / 'elsewhere'
         chosen.mkdir()
         self.ctl.saved_paths_value = SimpleNamespace(work=None, extra={'shader_cache': str(chosen)})
         self.open_tab()
-        self.assertEqual(self.row('shader')['path'].cget('text'), str(chosen))
+        self.assertNotEqual(self.row('shader')['path'].cget('text'), str(chosen))   # the launcher reads no such setting
+        self.assertIsNone(self.row('shader')['choose'])
 
 
 if __name__ == '__main__':

@@ -8,7 +8,7 @@ import threading
 import tkinter as tk
 from pathlib import Path
 
-from tools.builder import saves, storage
+from tools.builder import game_state, saves, storage
 from tools.builder.games import GAMES
 from tools.builder.gui_style import BAD, GOOD, MUTED, TEXT, WRAP, muted
 from tools.builder.gui_widgets import FlatButton
@@ -202,24 +202,29 @@ class SavesPanel:
             return
         self.status.configure(text=text('gui.saves.restoring'), foreground=MUTED)
         target, root, now = value['target'], self.backup_root(), self.now()
-        self._start('restore', lambda: self._do_restore(backup, target, root, now))
+        data = self.home / 'Library/Application Support/MacNativeGames' / GAMES[game].data_folder
+        self._start('restore', lambda: self._do_restore(backup, target, root, now, data))
 
-    def _do_restore(self, backup, target, root, now):
-        pre, reason = saves.backup(target, root, f'{backup.game or "save"}-pre-restore', backup.game, now,
-                                   backup.title_id, with_hash=False)
-        if pre is None:
-            return {'error': reason}
+    def _do_restore(self, backup, target, root, now, data):
+        if game_state.game_running(data):   # the game would write its own save back over the restored one
+            return {'error': text('gui.saves.running')}
+        pre = None
+        if saves.list_files(target):        # nothing to keep when the game has not saved yet (a new Mac)
+            pre, reason = saves.backup(target, root, f'{backup.game or "save"}-pre-restore', backup.game, now,
+                                       backup.title_id, with_hash=False)
+            if pre is None:
+                return {'error': reason}
         plan, error = saves.restore(backup, target)
-        return {'pre': pre, 'plan': plan, 'error': error}
+        return {'pre': pre, 'plan': plan, 'error': error, 'from': backup.directory}
 
     def _restored(self, value):
         if value.get('error'):
             self.status.configure(text=text('gui.saves.restore_failed', reason=value['error']), foreground=BAD)
             return
         self.opened()                   # the saved files change under the rows, so read them again
-        self.status.configure(text=text('gui.saves.pre_backup', path=value['pre'].directory) + '\n' +
-                              text('gui.saves.restored', write=len(value['plan'].write),
-                                   backup=value['pre'].directory), foreground=GOOD)
+        pre = text('gui.saves.pre_backup', path=value['pre'].directory) + '\n' if value['pre'] else ''
+        self.status.configure(text=pre + text('gui.saves.restored', write=len(value['plan'].write),
+                                              backup=value['from']), foreground=GOOD)
 
     def refresh(self, idle):
         self._idle = idle

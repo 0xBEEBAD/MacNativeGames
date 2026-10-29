@@ -4,9 +4,9 @@ The work folder is build_app.py's: by default <game file's folder>/<work folder 
 BotW_build), or the folder the build was given with --work; the builder remembers the last one in
 settings.json (SavedPaths.work). The shader cache is the game launcher's: <Application Support>/
 MacNativeGames/<TOTK|BotW>/shader-cache, holding one rt-<chain> folder per Metal pipeline chain, and
-the launcher's TOTK_SHADER_CACHE environment variable moves it (games/totk/app/launcher.m). Breath
-of the Wild's launcher is the same program, so BOTW_SHADER_CACHE is honoured first and the shared
-TOTK_SHADER_CACHE name second.
+the launcher's TOTK_SHADER_CACHE environment variable moves it (games/totk/app/launcher.m; Breath of
+the Wild's launcher is the same program and reads the same name). The builder does not move it: the
+launcher reads no folder chosen here.
 
 Everything here is read-only or explicitly confirmed by the caller: measure() only walks, clean()
 removes a folder's contents (never the folder, never a game, save or app) and move() moves one
@@ -22,7 +22,7 @@ from pathlib import Path
 import shutil
 
 # Environment variables the game's launcher reads for the shader cache, in the order it checks them.
-SHADER_ENV = {'totk': ('TOTK_SHADER_CACHE',), 'botw': ('BOTW_SHADER_CACHE', 'TOTK_SHADER_CACHE')}
+SHADER_ENV = {'totk': ('TOTK_SHADER_CACHE',), 'botw': ('TOTK_SHADER_CACHE',)}
 
 # Top-level folders a cache never lives under, so a bad path can never clean the system.
 SYSTEM = frozenset({'System', 'Library', 'Applications', 'usr', 'bin', 'sbin', 'etc', 'private', 'var', 'dev'})
@@ -83,11 +83,9 @@ def shader_env(spec):
     return names[0], names
 
 
-def shader_dir(spec, home, environ=None, chosen=None):
-    """Where the launcher writes this game's shader cache: a folder chosen in the Storage tab when
-    one is saved, then its environment variable (the first one that is), then the fixed folder."""
-    if chosen:
-        return Path(chosen).expanduser()
+def shader_dir(spec, home, environ=None):
+    """Where the launcher writes this game's shader cache: its environment variable when set, then the
+    fixed folder."""
     environ = os.environ if environ is None else environ
     for name in SHADER_ENV.get(spec.id, ()):
         value = environ.get(name)
