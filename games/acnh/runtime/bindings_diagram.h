@@ -219,7 +219,7 @@ enum { DIAGRAM_MOUSE_W = 92, DIAGRAM_MOUSE_H = 150, DIAGRAM_MOUSE_SPLIT = 58 };
  }
  diagram_text(name,NSMakeRect(r.origin.x+5,r.origin.y+3,r.size.width-10,12),size,NSFontWeightSemibold,labelColor,NSTextAlignmentLeft);
  /* The function-key row (esc, F1-F12) is 0.72 of a key high: room for one line under the name, so an action of two lines
-    ("Run / Cancel" on esc, user 2026-10-29: it ran over the key below) is written on one, smaller until it fits. */
+    ("Run / Cancel" on esc, reported in play, PR #1305: it ran over the key below) is written on one, smaller until it fits. */
  NSString *what=settings?settings_text("设置","Settings"):diagram_action_short(a);CGFloat whatSize=8.6;
  if(r.size.height<0.9*DIAGRAM_U){
   what=[what stringByReplacingOccurrencesOfString:@"\n" withString:@" / "];

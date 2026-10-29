@@ -23,7 +23,7 @@ static _Atomic int textCapture;       /* gamepadLock: 1 the panel owns input, 2 
 static BOOL started;
 static _Atomic int settingsShortcutEnabled;
 static int settingsShortcutDown, settingsShortcutPending;
-/* The controller's way to the settings panel (as games/totk, user 2026-10-29): L3 and R3 pressed together by default, or
+/* The controller's way to the settings panel (as games/totk, reported in play, PR #1305): L3 and R3 pressed together by default, or
    one button the player picks in the key bindings (the touchpad, say), kept in controller-settings.txt. It opens or
    closes the panel as soon as it is all down; from there the game gets no controller input until everything is
    released. A picked button drives nothing in the game. */

@@ -1,5 +1,5 @@
 /* System functions Animal Crossing reaches in single-player play that would otherwise go to Switch services this host
-   does not run (user 2026-10-29: "after I set up a tent, the game crashes whenever I click on the mailbox"; the log:
+   does not run (reported in play, PR #1305: "after I set up a tent, the game crashes whenever I click on the mailbox"; the log:
    sm: service "pctl" not implemented, from nn::pctl::CheckFreeCommunicationPermission). Each answers as a console with
    no restrictions and no network would:
      nn::pctl   parental controls: free communication is allowed (letters, the mailbox; nn::pctl::Initialize and the

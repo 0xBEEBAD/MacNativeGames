@@ -364,7 +364,7 @@ def package(work: Path, prepared: Path, fonts: Path, output: Path, icon: Path = 
         cache_local = work / "build/shader-cache/rt-totk-native-v4-unverified"
         seed_data(app_data_dir, user_data_local, cache_local)
 
-        # Finder and the Dock keep the icon they cached for this path (user 2026-10-29: the app showed the old, blank
+        # Finder and the Dock keep the icon they cached for this path (reported in play, PR #1305: the app showed the old, blank
         # icon in Finder while the running app's was right): a new modification date and Launch Services registration
         # make them read the new bundle's.
         os.utime(output)

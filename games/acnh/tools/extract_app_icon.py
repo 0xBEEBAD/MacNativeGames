@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Make the app icon (AppIcon.icns) from the update's own title icon (user 2026-10-29: the app showed no icon).
+"""Make the app icon (AppIcon.icns) from the update's own title icon (reported in play, PR #1305: the app showed no icon).
 
 The update NSP's Control NCA holds icon_<language>.dat, a 256x256 JPEG: it is read with the same bounded Control RomFS
 reader and IVFC check that prepare.py uses for control.nacp, the NACP must be the one prepare.py verified, and sips and

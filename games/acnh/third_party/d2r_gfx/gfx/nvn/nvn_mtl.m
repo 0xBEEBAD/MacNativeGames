@@ -5490,7 +5490,7 @@ static __unsafe_unretained NvProg *prog_get(const prog_t *cp) {   // 只在提�
         char key[65];for(unsigned j=0;j<32;j++)snprintf(key+2*j,3,"%02x",md[j]);
         // TOTK: stage from control+0x714 (0 vertex, 1 fragment, 5 compute); translation answered from the bound state.
         int st=(int)nvn_stage;
-        /* Animal Crossing (user 2026-10-29): the Chinese input's candidate list in the name entry keyboard draws with a
+        /* Animal Crossing (reported in play, PR #1305): the Chinese input's candidate list in the name entry keyboard draws with a
            geometry shader (NVN stage 2), and Metal has none; the game ended here (MDIE). Such a stage (2 geometry, 3 and 4
            tessellation) has no translation chain: the program is marked missing for good (unsupported), so its draws are
            skipped as an untranslated program's are, and the game goes on without that one element. */

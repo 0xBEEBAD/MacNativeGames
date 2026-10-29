@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare Animal Crossing's shader seed from the verified, prepared player data (user 2026-10-29: frame drops).
+"""Prepare Animal Crossing's shader seed from the verified, prepared player data (reported in play, PR #1305: frame drops).
 
 Without it, every shader the game meets for the first time is translated and compiled on the submit thread: in a
 10-minute session of 3.0.1, 25 of the 26 frames over 50 ms were that (17.9 of 19.2 s lost, the worst 6.1 s for 61

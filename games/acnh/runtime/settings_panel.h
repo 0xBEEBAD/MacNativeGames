@@ -1,4 +1,4 @@
-/* The settings panel (Mac; included by frontend.m; adapted from games/totk/runtime/settings_panel.h, user 2026-10-29: the
+/* The settings panel (Mac; included by frontend.m; adapted from games/totk/runtime/settings_panel.h, reported in play, PR #1305: the
    Zelda panel for Animal Crossing, leaving out what this game cannot use). Key 1 opens and closes it (runtime/input.c),
    L3 + R3 on a controller (or the button picked in the key bindings) too; Esc and its close button close it. Three pages
    (Display, Input, Key bindings) chosen by the tabs at the top, or L1 / R1 on a controller; the version in the
@@ -174,7 +174,7 @@ static NSArray<TOTKSettingRow *> *settings_rows(void) {
 /* The game actions in the order the page lists them; action -1 starts a section. */
 typedef struct { int action; const char *zh, *en, *tag; } SettingsAction;
 /* The key bindings' row for the settings panel itself: key 1 on the keyboard (fixed), on a controller L3 + R3 together or
-   the button picked (gamepad.m runtime_gamepad_settings_button, user 2026-10-29). */
+   the button picked (gamepad.m runtime_gamepad_settings_button, reported in play, PR #1305). */
 enum { SETTINGS_BIND_PANEL = 100 };
 static const SettingsAction *settings_actions(int *count) {
  static const SettingsAction list[]={
@@ -347,7 +347,7 @@ enum { SETTINGS_W = 600, SETTINGS_ROW_H = 34, SETTINGS_GAP = 6, SETTINGS_TOP = 9
  self.drawings=drawings;self.panelW=W;self.bindingButtons=[NSMutableArray array];self.bindingTargets=[NSMutableArray array];
  self.allRows=rows;self.controllerTargets=[NSMutableArray array];self.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
  /* Opaque (games/totk: 0.9): Animal Crossing's bright screens, and its own letter keyboard in the name entry, showed
-    through the key bindings drawing and read as keys out of place (user 2026-10-29). */
+    through the key bindings drawing and read as keys out of place (reported in play, PR #1305). */
  self.wantsLayer=YES;self.layer.backgroundColor=[NSColor colorWithCalibratedRed:0.10 green:0.16 blue:0.20 alpha:1].CGColor;
  self.layer.cornerRadius=12;self.layer.borderWidth=1;self.layer.borderColor=[NSColor colorWithCalibratedWhite:1 alpha:0.12].CGColor;
  self.autoresizingMask=NSViewMinXMargin|NSViewMaxXMargin|NSViewMinYMargin|NSViewMaxYMargin;

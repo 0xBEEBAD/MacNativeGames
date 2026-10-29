@@ -3,7 +3,7 @@
    a Mac key (virtual key code 0-127: the key's physical position, named after a US layout) or a mouse button (128 left,
    129 right, 130 middle (the wheel click), 131 and 132 the side buttons; runtime/frontend.m sends them while the game
    window has the keyboard and the settings panel is closed). One input drives at most one action.
-   The default (user 2026-10-29: the layout must suit keyboard and mouse players) keeps the left hand on the keyboard:
+   The default (reported in play, PR #1305: the layout must suit keyboard and mouse players) keeps the left hand on the keyboard:
    W A S D walk, Shift (held) runs and Esc backs out (B), Space or the left button talks, uses the tool and confirms (A),
    E or the right button picks up (Y), Tab or I opens the pockets (X), Q the NookPhone (ZL), R the reactions (ZR), Z and C
    are L and R, Control and V the stick presses, M or Return the + button, Backspace the - button, 2 3 4 5 the d-pad

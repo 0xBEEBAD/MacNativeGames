@@ -1,5 +1,5 @@
-"""SDK functions Animal Crossing 3.0.1 imports that would otherwise go to Switch services this host does not run (user
-2026-10-29: the mailbox crash, sm: service "pctl" not implemented). Each must be named by a host override table, so the
+"""SDK functions Animal Crossing 3.0.1 imports that would otherwise go to Switch services this host does not run (reported in play, PR #1305:
+ the mailbox crash, sm: service "pctl" not implemented). Each must be named by a host override table, so the
 loader binds the host function (runtime/loader.c relocate: runtime_override by name)."""
 import re
 import unittest
@@ -39,7 +39,7 @@ REQUIRED = {
 
 class HostImportTests(unittest.TestCase):
     def test_geometry_stages_are_skipped_not_fatal(self):
-        # The name entry keyboard's candidate list (Swkbd/shader/*Ocean*) draws with a geometry shader (user 2026-10-29).
+        # The name entry keyboard's candidate list (Swkbd/shader/*Ocean*) draws with a geometry shader (reported in play, PR #1305).
         mtl = (RUNTIME.parent / "third_party/d2r_gfx/gfx/nvn/nvn_mtl.m").read_text()
         self.assertNotIn('MDIE("TOTK shader %s: unsupported NVN stage %u"', mtl)
         self.assertIn("o->unsupported|=1<<st", mtl)

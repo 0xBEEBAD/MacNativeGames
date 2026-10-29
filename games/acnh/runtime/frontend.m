@@ -159,7 +159,7 @@ enum { FPS_GRAPH_SAMPLES = 61, FPS_GRAPH_WIDTH = 220, FPS_GRAPH_HEIGHT = 90 };
 /* Compact HUD (default): one small box in the window's top-right corner with the FPS, shader and load lines (published by
    gfx/nvn/fps_overlay.c, refreshed twice a second) and, when the settings panel turns it on, the FPS graph; the panel's
    overlay row picks all, FPS only or none. TOTK_HUD=corners: the lines stay in the picture's corners and there is no box
-   (as games/totk; the key reminder this box had is gone with keys 2-4, user 2026-10-29). */
+   (as games/totk; the key reminder this box had is gone with keys 2-4, reported in play, PR #1305). */
 @implementation TOTKHudBox
 -(instancetype)initWithFrame:(NSRect)frame{if((self=[super initWithFrame:frame])){self.wantsLayer=YES;self.layer.backgroundColor=[NSColor colorWithCalibratedWhite:0.04 alpha:0.72].CGColor;self.layer.cornerRadius=7;self.layer.borderWidth=1;self.layer.borderColor=[NSColor colorWithCalibratedWhite:1 alpha:0.14].CGColor;
  self.label=[NSTextField labelWithString:@""];self.label.alignment=NSTextAlignmentLeft;self.label.maximumNumberOfLines=0;self.label.lineBreakMode=NSLineBreakByClipping;[self addSubview:self.label];

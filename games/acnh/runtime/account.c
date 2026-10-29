@@ -49,7 +49,7 @@ static uint32_t list_all_users(int *count,Uid *out,int capacity){
 static void close_user(const UserHandle *handle){lock_acquire();if(!valid(handle))runtime_fail("invalid local account handle close");for(unsigned i=0;i<64;i++)if(tokens[i]==handle->token){tokens[i]=0;break;}lock_release();}
 static uint32_t existence(unsigned char *out,const Uid *uid){if(!out||!uid)return 0x7c67;initialize();*out=same(uid);return 0;}
 static uint32_t nickname(char *out,const Uid *uid){initialize();if(!out||!same(uid))return 0x7c67;memset(out,0,33);memcpy(out,"Local",5);return 0;}
-/* Animal Crossing 3.0.1 also opens the user by its Uid and lists the users who may play online (user 2026-10-29: the
+/* Animal Crossing 3.0.1 also opens the user by its Uid and lists the users who may play online (reported in play, PR #1305: the
    unhandled calls went to the account service, which this host does not run). The one local user is both. Its profile
    picture: runtime/system_applets.c. */
 static uint32_t open_user(UserHandle *out,const Uid *uid){if(!out)return 0x7c67;initialize();if(!same(uid))return 0x7c67;return preselected(out)?0:0x7c67;}
