@@ -14,7 +14,7 @@ keys and saves are never committed (see `.gitignore`).
 | 0 | Feasibility: does the game fit the by3 architecture? Code and data out of the dump, verified | done 2026-10-29 |
 | 1 | Code rewritten for Apple silicon; merged RomFS | done 2026-10-29 |
 | 2 | A runtime fork that boots to `nnMain` | done 2026-10-29 |
-| 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | |
+| 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | in progress: window, Metal, VI and the .pkz listing up; the game crashes in its own NVN init |
 | 4 | Playable: picture, audio (Wwise), input, saves; 30/60 fps and resolution patches | |
 | 5 | TotK-grade polish: app, presets, shader seed, shared shader list, MetalFX | |
 
@@ -181,3 +181,28 @@ the map size at 2^64−3.2 GB, which `mmap` "succeeded" at and the first `fread`
 Open questions carried forward: `nvnBootstrapLoader` (unimplemented stub; abort names it when reached); the
 application pool figure (the host's default stands until the game's `svcGetInfo` asks); Wwise's audio
 renderer revision under the older SDK; Bink 2 movies (stage 4).
+
+### 2026-10-29: stage 3 (in progress), from `nnMain` into the game's own init
+
+Method: as by3's — boot with a window, read where the host stops or the guest crashes, fix that, repeat.
+`scripts/symbolize.py` (by3's, work folder renamed) names sdk frames from the analysis layout.
+
+Answered so far:
+
+- **nn::vi answered by name** (`runtime/system_services.c`, the `runtime_alc_override` table): the host has no
+  vi IPC service and presentation is the host's own window (by3's model). `Initialize`/`SetLayerScalingMode`
+  return 0, `OpenDefaultDisplay`/`CreateLayer` hand back distinct non-null markers (the game does not check
+  the results and dereferenced a null layer at `nn::vi::SetLayerScalingMode` — the crash that motivated this),
+  `GetNativeWindow` returns no native handle, which the graphics layer tolerates.
+
+State: the window is created and focused, the Metal device comes up (Apple M5), the native VI display
+initializes, the game lists `Contents:/` (47 entries; `miscTex`, `movie`, 389 `mv` entries, `sound/stream`
+with ~7,600 entries) and spawns its worker threads; `nnMain` proceeds into its own initialization and
+crashes at `main+0x9c0d1c` (`ldr x24,[x10,#8]` with `x10 = [0xdc2690+0x28] = NULL`) right after
+`nv::InitializeGraphics` — the game reads a global table a previous init step should have filled; the
+caller chain is `nnMain → main+0x9c26b8 → main+0x3e3b90 (bl main+0x9c1bd0)`. Not yet traced: which init
+step owns that table. Next step: lldb breakpoint at `main+0x9c0d10`, walk back one call at a time (by3's
+`cbz w0, fail` method), with capstone for the game's own code.
+
+Pitfalls: none new this round; the instrumentation added to `loader.c` during the boot fixes (read/short,
+key page, permission mismatch) is temporary and off by default in behaviour.
