@@ -10,10 +10,10 @@ The game's ARM64 code runs natively after an ahead-of-time rewrite; a host answe
 
 Checked on an M1 Max MacBook Pro, macOS 27.0.1, with scripted runs of the built app ([details](docs/validation.md)):
 
-- **Works:** boot to the title with its music, "Select a Mii" and the six default Miis, the menus with their movie previews, a full 50cc Grand Prix race at Mario Kart Stadium to the results, saves written and read again. 60 fps in the race (18,873 of 18,900 frames on screen), about 2.7 GB of memory. With the Booster Course Pass in the input folder, its cups are on the cup screen's next page, and a scripted 50cc race at Paris Promenade (Golden Dash Cup) runs at 60 fps.
+- **Works:** boot to the title with its music, "Select a Mii" and the six default Miis, the menus with their movie previews, a full 50cc Grand Prix race at Mario Kart Stadium to the results, saves written and read again. 60 fps in the race (18,873 of 18,900 frames on screen), about 2.7 GB of memory. With the Booster Course Pass in the input folder, its 12 cups are on the cup screen's next page (without it, choosing one only opens the game's purchase notice), and a scripted 50cc Grand Prix of the Golden Dash Cup ran Paris Promenade, Toad Circuit and Choco Mountain to their results and into Coconut Mall. The scripted race in full screen drops no more frames than in a window (58 and 68 of 18,900).
 - **Not available:** Mii heads draw nothing (no MiiModel firmware data; bodies and colours show). Online Play shows "Connecting…" and returns to the menu, Wireless Play finds nothing: both are cut on purpose.
 - **By hand:** a DualSense became player 1 with its gyro in both sessions played by hand. A race with it was played in an unmodified upstream build of the same inputs, whose rewritten modules are byte-identical to this target's. This target's own app was only started by hand (the title and menus), and its race is the scripted one ([played by hand](docs/validation.md#played-by-hand)).
-- **Not yet checked:** a race by hand in this target's app, fullscreen in it, the other cups (of the Booster Course Pass's, only Paris Promenade's first lap was run), battle mode, multiplayer on one screen, long sessions. The scripted runs press buttons through `DM_KEYS`.
+- **Not yet checked:** a race by hand in this target's app, full screen by hand, the other cups (of the Booster Course Pass's, only the Golden Dash Cup was raced), battle mode, multiplayer on one screen, long sessions. The scripted runs press buttons through `DM_KEYS`.
 
 ## Build
 
