@@ -59,10 +59,14 @@ def soon(parent, key):
     return frame
 
 
+ENTRY = '[winfo class %W] in {Entry TEntry}'
+SIDEWAYS = f'if {{{ENTRY}}} {{tk::MouseWheel %W x %D -40.0 units}}; break'
 TOUCHPAD = """if {%# %% 5 == 0} {
     lassign [tk::PreciseScrollDeltas %D] tk::Priv(deltaX) tk::Priv(deltaY)
     if {$tk::Priv(deltaY) != 0} {CANVAS yview scroll [expr {-$tk::Priv(deltaY)}] units}
-}"""
+    if {$tk::Priv(deltaX) != 0 && ENTRY} {%W xview scroll [expr {-$tk::Priv(deltaX)}] units}
+}
+break""".replace('ENTRY', ENTRY)
 
 
 class ScrollArea:
@@ -71,9 +75,10 @@ class ScrollArea:
     The wheel and the trackpad use Tk 9.1's own handlers, in units of yscrollincrement, through a bind tag put in front
     of the class tag of every widget inside (the build log's Text keeps its own scrolling). The plain wheel scrolls the
     body and stops there (an Entry's own vertical wheel does nothing useful); Shift+wheel and the trackpad's sideways
-    part go on to an Entry's class binding, so long paths still scroll sideways (C1). sync() brings the scroll region
-    and the tags up to date; the view calls it after adding or removing rows and after a panel switch (C2). A focused
-    field that is not fully visible is brought into view by the least scroll (C4)."""
+    part scroll an Entry under the pointer sideways here, since Tk 9.0's Entry has no wheel or trackpad binding of its
+    own, so long paths still scroll sideways (C1). sync() brings the scroll region and the tags up to date; the view
+    calls it after adding or removing rows and after a panel switch (C2). A focused field that is not fully visible is
+    brought into view by the least scroll (C4)."""
 
     def __init__(self, parent):
         self.frame = tk.Frame(parent)
@@ -87,7 +92,7 @@ class ScrollArea:
         self.tag, canvas = f'BuilderWheel{id(self)}', str(self.canvas)
         self.canvas.bind_class(self.tag, '<MouseWheel>', f'tk::MouseWheel {canvas} y %D -40.0 units; break')
         for sequence in ('<Shift-MouseWheel>', '<Shift-Mod2-MouseWheel>'):
-            self.canvas.bind_class(self.tag, sequence, 'list')         # nothing here, and no break: the class runs
+            self.canvas.bind_class(self.tag, sequence, SIDEWAYS)       # an Entry scrolls sideways, nothing else does
         self.canvas.bind_class(self.tag, '<TouchpadScroll>', TOUCHPAD.replace('CANVAS', canvas))
         self.canvas.bind_class(self.tag, '<FocusIn>', lambda e: self.reveal(e.widget))
         self.inner.bind('<Configure>', lambda e: self._region())       # a backup; sync() is the one relied on
