@@ -14,7 +14,7 @@ keys and saves are never committed (see `.gitignore`).
 | 0 | Feasibility: does the game fit the by3 architecture? Code and data out of the dump, verified | done 2026-10-29 |
 | 1 | Code rewritten for Apple silicon; merged RomFS | done 2026-10-29 |
 | 2 | A runtime fork that boots to `nnMain` | done 2026-10-29 |
-| 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | in progress: window, Metal, VI and the .pkz listing up; first crash traced to an uninitialized BSS object |
+| 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | in progress: the first crash is fully traced; the lldb watch probe (scripts/crash_probe.py) needs one API fix to finish the writer hunt |
 | 4 | Playable: picture, audio (Wwise), input, saves; 30/60 fps and resolution patches | |
 | 5 | TotK-grade polish: app, presets, shader seed, shared shader list, MetalFX | |
 
@@ -208,10 +208,22 @@ effective-address scan over all of main's text finds **no store to that field**:
 a candidate return value to chase). The caller chain is `nnMain → main+0x9c26b8 → main+0x3e3b90
 (bl main+0x9c1bd0)`.
 
-Next step: find the writer of the BSS object at `0xcc9cd98` (same effective-address scan, then check why
-its initialization did not run — lldb breakpoint at `main+0x9c0d10` and the `cbz w0, fail` walk, one call
-at a time, with capstone for the game's own code). This is the shape of the whole stage: by3's log records
-the same loop until `nvnQueuePresentTexture`.
+Next step: find the writer of the BSS object at `0xcc9cd98`. Static scans are exhausted: no store to the
+object anywhere in main's text (effective-address scan including adrp+add chains), no init_array entry
+references it, and no call passes it or its pointer field in x0–x7. The field must be written through the
+relocated pointer at `0xdc2690` loaded from memory (or by SDK code), so the writer hunt moves to lldb:
+`scripts/crash_probe.py` is an lldb Python command (`lldb -b build/alc-native -o "command script import
+../scripts/crash_probe.py" -o alcprobe -o quit`, from `AC_build`) that waits for main's `seal`, reads the
+module base dynamically, arms a write watchpoint on the field, breaks once at the crash function's entry
+and dumps guest registers, the object and the pointer table at the SIGSEGV. State of the script: it
+reaches the base read (`alcprobe: main base = 0x10a65c000`) and then returns before arming — the next
+session finishes that function (one API round-trip) and reads the watch. `scripts/pltres.py` resolves
+main's PLT targets to import names (used to identify init steps). Note: the module base is NOT stable
+across lldb runs (0x10a638000 vs 0x10a620000 vs 0x10a65c000 observed) — always read it dynamically. The
+registry reads a mutex at the neighbouring pointer field `0xdc2688` and the crash walk pattern appears in
+a second place (`main+0x9c1bf0`), i.e. this is a C++ listener registry whose sentinel is missing.
+
+This is the shape of the whole stage: by3's log records the same loop until `nvnQueuePresentTexture`.
 
 Pitfalls: none new this round; the instrumentation added to `loader.c` during the boot fixes (read/short,
 key page, permission mismatch) is temporary and off by default in behaviour.
