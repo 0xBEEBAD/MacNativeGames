@@ -14,7 +14,7 @@ keys and saves are never committed (see `.gitignore`).
 | 0 | Feasibility: does the game fit the by3 architecture? Code and data out of the dump, verified | done 2026-10-29 |
 | 1 | Code rewritten for Apple silicon; merged RomFS | done 2026-10-29 |
 | 2 | A runtime fork that boots to `nnMain` | done 2026-10-29 |
-| 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | in progress: window, Metal, VI and the .pkz listing up; the game crashes in its own NVN init |
+| 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | in progress: window, Metal, VI and the .pkz listing up; first crash traced to an uninitialized BSS object |
 | 4 | Playable: picture, audio (Wwise), input, saves; 30/60 fps and resolution patches | |
 | 5 | TotK-grade polish: app, presets, shader seed, shared shader list, MetalFX | |
 
@@ -198,11 +198,20 @@ Answered so far:
 State: the window is created and focused, the Metal device comes up (Apple M5), the native VI display
 initializes, the game lists `Contents:/` (47 entries; `miscTex`, `movie`, 389 `mv` entries, `sound/stream`
 with ~7,600 entries) and spawns its worker threads; `nnMain` proceeds into its own initialization and
-crashes at `main+0x9c0d1c` (`ldr x24,[x10,#8]` with `x10 = [0xdc2690+0x28] = NULL`) right after
-`nv::InitializeGraphics` — the game reads a global table a previous init step should have filled; the
-caller chain is `nnMain → main+0x9c26b8 → main+0x3e3b90 (bl main+0x9c1bd0)`. Not yet traced: which init
-step owns that table. Next step: lldb breakpoint at `main+0x9c0d10`, walk back one call at a time (by3's
-`cbz w0, fail` method), with capstone for the game's own code.
+crashes at `main+0x9c0d1c` (`ldr x24,[x10,#8]` with `x10 = NULL`).
+
+The crash is traced to its data flow: `adrp x23,0xdc2000; ldr x23,[x23,#0x690]` loads the pointer at
+`0xdc2690` — a RELR relocation (addend `0xcc9cd98`) points it at a BSS object — and the object's field at
+`+0x28` is NULL when the game reads it (`x10 = x23->field_28`, then `ldr x24,[x10,#8]`). An
+effective-address scan over all of main's text finds **no store to that field**: the BSS object
+(`0xcc9cd98`) is populated by an init step that has not run yet (or failed silently — the `-14` in x4 is
+a candidate return value to chase). The caller chain is `nnMain → main+0x9c26b8 → main+0x3e3b90
+(bl main+0x9c1bd0)`.
+
+Next step: find the writer of the BSS object at `0xcc9cd98` (same effective-address scan, then check why
+its initialization did not run — lldb breakpoint at `main+0x9c0d10` and the `cbz w0, fail` walk, one call
+at a time, with capstone for the game's own code). This is the shape of the whole stage: by3's log records
+the same loop until `nvnQueuePresentTexture`.
 
 Pitfalls: none new this round; the instrumentation added to `loader.c` during the boot fixes (read/short,
 key page, permission mismatch) is temporary and off by default in behaviour.
