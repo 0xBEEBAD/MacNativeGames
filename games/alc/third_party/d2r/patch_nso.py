@@ -1079,7 +1079,9 @@ if RULE_RUN:
 os.makedirs(outdir, exist_ok=True)
 P = lambda ext: os.path.join(outdir, f'{NAME}.{ext}')
 assert len(patch) <= (PATCH_ARENA if PATCH_OFF < 0 else 0xFFFF0000), f'patch area overflow: {len(patch)}'
-open(P('patched.bin'), 'wb').write(IMG)
+# The key page starts at KEY_PAGE_OFF (round 16 KiB of the image) and is 0x4000 bytes; pad the file so it
+# holds all of it even when the image itself is not 16 KiB aligned (the appended-area layout hid this).
+open(P('patched.bin'), 'wb').write(bytes(IMG) + bytes(max(0, KEY_PAGE_OFF + 0x4000 - len(IMG))))
 open(P('patcharea.bin'), 'wb').write(patch)
 import hashlib
 with open(os.path.join(outdir, 'build_src.sha256'), 'w') as f:

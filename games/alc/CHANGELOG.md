@@ -13,7 +13,7 @@ keys and saves are never committed (see `.gitignore`).
 |---|---|---|
 | 0 | Feasibility: does the game fit the by3 architecture? Code and data out of the dump, verified | done 2026-10-29 |
 | 1 | Code rewritten for Apple silicon; merged RomFS | done 2026-10-29 |
-| 2 | A runtime fork that boots to `nnMain` | |
+| 2 | A runtime fork that boots to `nnMain` | done 2026-10-29 |
 | 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | |
 | 4 | Playable: picture, audio (Wwise), input, saves; 30/60 fps and resolution patches | |
 | 5 | TotK-grade polish: app, presets, shader seed, shared shader list, MetalFX | |
@@ -138,3 +138,46 @@ failed IVFC level 5 block 9; level 4 had verified, which is what localized the d
 
 `assets/expected-v1.0.1.json` now pins the rewritten modules (`main.patched.bin`, both `patcharea.bin`s,
 `sdk.patched.bin`) and the merged RomFS alongside the stage-0 records. The build re-checks every one of them.
+
+### 2026-10-29: stage 2, a runtime fork that boots to `nnMain`
+
+`games/alc/runtime` is a fork of `games/by3/runtime` (repo commit `6b0c377` is the unchanged copy; the diff
+since is this port), with its own copies of the graphics layer (`third_party/d2r_gfx`, compiled unchanged —
+it carries the Platinum-relevant fixes: GPU-side indirect draws, per-stage program binding, attachment-less
+passes, `preserveInvariance`, `X32_Stencil8`), the prebuilt shader translator, and the by3 scripts. The NVN
+layer reports 523 names, 424 implemented; Astral's 513 imports cover all but `nvnBootstrapLoader`, which the
+layer answers as an unimplemented stub until the game calls it (it fails loudly with its name).
+
+**The loader learned the two-file patch layout** (stage 1's arena model): the module table carries a signed
+`patch_off` plus `patch_size` and the patch area's SHA-256; `map_module` allocates `[base−arena, base+size)`
+as one region (`mmap` anonymous), reads `patched.bin` at `base` and `patcharea.bin` at `base+patch_off`,
+verifies both digests, and `seal` makes the patch area executable and flushes its icache. The permission
+self-check treats the patch as the guest span `[patch_off, patch_off+patch_size)` — with the patch below the
+base, a negative `patch_off` never matches a guest offset. The runtime tables bind everything: 87,192
+relocations, main's `GetSystemTick` PLT found uniquely at `main+0xa0d630`, both modules' `DT_INIT`
+constructor-state words detected by the same adrp+ldr shape TotK and by3 use (compiler pattern holds across
+the older SDK).
+
+**One SDK difference surfaced at boot:** Astral Chain's SDK exports a four-callback `nn::init::Start`
+(`_ZN2nn4init5StartEmmPFvvES2_`, no finalizer) where TotK/by3's SDK 13+ passes three; the boot tries the
+four-argument form first and falls back. Everything else in the host answered as-is.
+
+Verified (recorded):
+
+- `alc-native rewritten/v101 probe`: pass. Both modules mapped (main `size=214892544 patch=−33554432+219824`,
+  sdk `patch=13107200+440628`), 87,192 relocations applied (main 55,255 relative + 624 symbolic;
+  sdk 9,048 + 22,265), identity checked, 4,000 cross-module PLT calls main→sdk→host timer on 4 threads.
+- `TOTK_HEADLESS=1 TOTK_VERIFY_STARTUP=1 alc-native rewritten/v101 boot`: pass (phase 4). The original
+  `nn::init::Start` ran the SDK startup; the merged RomFS verified; every constructor finished with state 2
+  (main 145 init_array entries, sdk 105); the original `nnMain` ran to its focus-handling setup, called from
+  `main+0x9c284c`. This is the first Astral Chain code running natively on the Mac.
+
+Pitfalls of this stage: with the patch in its own file, `patched.bin` must still be padded past
+`KEY_PAGE_OFF+0x4000` — the appended-area layout used to cover the key page's tail by accident, and an
+un-padded file fails the loader's key-page bound (main's image is not 16 KiB aligned); and a signed
+`patch_off` must never be widened through `size_t` before the sign is handled (`(size_t)(−0x2000000)` put
+the map size at 2^64−3.2 GB, which `mmap` "succeeded" at and the first `fread` reported `EFAULT`).
+
+Open questions carried forward: `nvnBootstrapLoader` (unimplemented stub; abort names it when reached); the
+application pool figure (the host's default stands until the game's `svcGetInfo` asks); Wwise's audio
+renderer revision under the older SDK; Bink 2 movies (stage 4).

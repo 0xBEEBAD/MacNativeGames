@@ -28,9 +28,9 @@
         "files": 8701
     },
     "rewritten_sha256": {
-        "main.patched.bin": "3ace6e60fba9e543605e027a650d7d49e294b6bc57ea34450c5099d3d1ef4be2",
+        "main.patched.bin": "843f66e33b8e793e7112412693db10e996601744b76b5fa29d9d9cbe34201b35",
         "main.patcharea.bin": "554e541a90a713b5b786b6d979c3c38e0c397debcf53392206f0c3e33ccea808",
-        "sdk.patched.bin": "93696b3a7165cdd487d321c7ab5cecd6874cf4e03154d6b7fca45b5a77649176",
+        "sdk.patched.bin": "957f6c416a06a579786d0272868a93a03f1ef7da690fb62922825f468d2fe278",
         "sdk.patcharea.bin": "90f2972c401101deb9c64ea4ac9fc6cad612389623900a8abfdedc3aa50c93c4"
     },
     "romfs": {
