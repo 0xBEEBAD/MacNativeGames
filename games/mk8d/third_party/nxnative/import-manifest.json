@@ -1751,7 +1751,8 @@
     {
       "source": "dm/mac/launcher.c",
       "destination": "runtime/mac/launcher.c",
-      "sha256": "3e320900353bbf6c2aa1849e611b78547f9627a37bf06445b1d9dc972e541a62"
+      "sha256": "3e320900353bbf6c2aa1849e611b78547f9627a37bf06445b1d9dc972e541a62",
+      "modified": "local-changes.patch"
     },
     {
       "source": "dm/mac/pack_app.py",
