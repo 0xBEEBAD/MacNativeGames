@@ -3,6 +3,61 @@
 The native Apple Silicon port for *Animal Crossing: New Horizons* is verified for **1.2.1** (`v458752`, title `01006F8002326000`) using base 1.0.0 and update 1.2.1.
 The project delivers a fully runnable native host (`acnh-native`), an offline Metal shader precompilation pipeline, and a self-contained, signed macOS application bundle (`Animal Crossing New Horizons.app`).
 
+**3.0.1 is an experimental bring-up target.** Its input hashes, NSO segments,
+generic rewrites, static linkage, merged RomFS and native cross-module/startup
+probes have been checked. Gameplay is still being investigated; a successful
+package or CPU probe does not establish a playable release. 3.0.0 and 2.x are
+not pinned by this build flow.
+
+## Experimental 3.0.1 build
+
+Use base **1.0.0** and a **separate 3.0.1 update NSP**. The builder selects the
+update profile from verified CNMT metadata. It rejects unknown code/data
+identities. Combined update images, cheats and DLC are not part of this flow.
+
+On Apple silicon with macOS 26+, the command-line tools and Homebrew libraries
+`opus`, `libvpx`, `libvorbis`, and `libogg`, create the isolated environment once:
+
+```sh
+python3.14 -m venv build/acnh-3.0.1/work/venv
+build/acnh-3.0.1/work/venv/bin/python -m pip install -r games/acnh/requirements.txt
+build/acnh-3.0.1/work/venv/bin/python games/acnh/tools/build_hactool.py --work build/acnh-3.0.1/work
+```
+
+Prepare the original inputs once, using a new `prepared` subdirectory. The
+shared-font folder must contain the extractor's six BFTTF files and manifest
+(`tools/extract_shared_fonts.py --firmware ... --keys ... --output ...`):
+
+```sh
+build/acnh-3.0.1/work/venv/bin/python games/acnh/prepare.py \
+  game-assets/animal-crossing-new-horizons/base/v0/acnh-base-v0-01006f8002326000.nsp \
+  --update game-assets/animal-crossing-new-horizons/updates/v3.0.1/acnh-update-v3.0.1-01006f8002326800.nsp \
+  --keys game-assets/shared/keys/prod.keys \
+  --hactool build/acnh-3.0.1/work/tools/hactool/hactool \
+  --work build/acnh-3.0.1/work/prepared
+```
+
+Compile current sources and assemble the full application. For subsequent source
+updates reuse the same prepared/native work folders; `build_host.py` rechecks
+the prepared inputs and regenerates the tables while retaining unchanged
+headers and graphics object files. Repackage to update the actual app:
+
+```sh
+MACOSX_DEPLOYMENT_TARGET=27.0 build/acnh-3.0.1/work/venv/bin/python games/acnh/build_host.py \
+  --prepared build/acnh-3.0.1/work/prepared \
+  --work build/acnh-3.0.1/work/native --shared-fonts game-assets/shared/fonts
+MACOSX_DEPLOYMENT_TARGET=27.0 build/acnh-3.0.1/work/venv/bin/python games/acnh/scripts/package_native_app.py \
+  --prepared build/acnh-3.0.1/work/prepared --work build/acnh-3.0.1/work/native \
+  --shared-fonts game-assets/shared/fonts \
+  --output "build/acnh-3.0.1/Animal Crossing New Horizons.app"
+```
+
+The 3.0.1 host targets NVN 55.15 and never installs the 1.2.1 game-address
+patches. It uses a separate version data folder and does not import old saves.
+The launcher keeps writable caches, verification proofs and game locks beside
+the app under `Animal Crossing Data`, preserving the signed app resources.
+No DMG or installation is performed by these commands.
+
 ## Verified Milestones
 
 | Component | Status | Details |

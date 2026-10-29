@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
     if (access(runtime, X_OK)) { perror("Animal Crossing: missing runtime"); return 1; }
     if (check) { puts("Animal Crossing launcher: runtime exists; game was not launched"); return 0; }
 
-    char data[PATH_MAX], profile[PATH_MAX], cache[PATH_MAX], commands[PATH_MAX], log[PATH_MAX];
+    char data[PATH_MAX], profile[PATH_MAX], cache[PATH_MAX], commands[PATH_MAX], log[PATH_MAX], slot[PATH_MAX];
     const char *override = getenv("ACNH_DATA_DIR");
     if (override && *override) {
         if (override[0] != '/' || snprintf(data, sizeof data, "%s", override) >= (int)sizeof data) {
@@ -70,8 +70,9 @@ int main(int argc, char **argv) {
     } else join(data, home, "Animal Crossing Data");
     join(profile, data, "profile");
     join(cache, data, "shader-cache");
+    join(slot, data, "game-slot");
     join(commands, data, "commands.txt"); join(log, data, "last-run.log");
-    mkdir(data, 0755); mkdir(profile, 0700); mkdir(cache, 0755);
+    mkdir(data, 0755); mkdir(profile, 0700); mkdir(cache, 0755); mkdir(slot, 0755);
 
     FILE *cf = fopen(commands, "w"); if (cf) fclose(cf);
     setenv("TOTK_GPU_ALLOW_SUBMIT", "1", 1);
@@ -86,6 +87,8 @@ int main(int argc, char **argv) {
     setenv("TOTK_SHADER_CACHE", cache, 1);
     setenv("TOTK_ROMFS", romfs, 1);
     setenv("TOTK_SHARED_FONTS", fonts, 1);
+    setenv("TOTK_ROMFS_PROOF_DIR", data, 1);
+    setenv("TOTK_GAME_SLOT_DIR", slot, 1);
     setenv("TOTK_INPUT_FILE", commands, 1);
     setenv("TOTK_SLOT_OWNER", "user", 1);
     setenv("TOTK_SLOT_PURPOSE", "Animal Crossing New Horizons.app", 1);

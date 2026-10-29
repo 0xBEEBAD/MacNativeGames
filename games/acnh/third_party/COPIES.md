@@ -9,3 +9,4 @@ to another game never changes this one.
 | `third_party/d2r_gfx/` (MIT/BSD) | `games/totk/third_party/d2r_gfx` | NVN-on-Metal graphics layer, texture decoding (`bcdec`), frame pace, pipeline cache |
 | `tools/extract_shared_fonts.py` | `games/totk/scripts/extract_shared_fonts.py` | Bounded system font extractor from firmware data NCAs |
 | `tools/extract_exefs.py`, `extract_romfs.py` | `games/by3/scripts/` | Container and filesystem extraction utilities |
+| `tools/build_hactool.py` | Root `build_app.py` at `1dcf40d` | Pinned hactool build, private ticket file, bounded base NCA and checked BKTR padding support; standalone copy |

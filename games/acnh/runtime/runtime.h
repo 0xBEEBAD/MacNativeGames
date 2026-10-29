@@ -65,7 +65,7 @@ void runtime_fs_probe(void);
 
 void *runtime_observer(const char *name);
 
-void runtime_startup_checkpoint(uintptr_t caller);
+void runtime_startup_checkpoint(uintptr_t caller, const char *boundary);
 
 uint64_t runtime_now_ns(void);
 uint32_t svc_thread_main_init(void);
@@ -109,6 +109,7 @@ int hud_compact(void);   /* gfx/nvn/fps_overlay.c: the overlay lines go to the w
 int hud_snapshot(int line, char *out, size_t n, int *highlight);   /* line 0..2: FPS, shaders, load; 0 = not published */
 
 void *runtime_account_override(const char *name);
+void runtime_account_uid(uint64_t out[2]);
 
 void runtime_gfx_probe(int negative);
 void runtime_vpool_probe(void);
