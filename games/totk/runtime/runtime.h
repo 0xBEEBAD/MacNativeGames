@@ -18,6 +18,7 @@ void *runtime_symbol(const char *name);
 void *runtime_override(const char *name);
 void runtime_hle_stack_init(uint64_t tsd_offset);
 void runtime_gpu_path_probe(const char *which);
+int mtl_pipeline_archive_tool(int argc, char **argv);   // Mac only (nvn_mtl.m): the device's pipeline archive for packaging
 void runtime_audio_probe(void);
 void runtime_audio_output_restart(int recreate);   /* audio_mixer.c: start the outputs again after an audio session interruption (iOS) */
 void *runtime_hle_wrap(void *fn);
@@ -165,6 +166,8 @@ int runtime_gamepad_type(int *detected);    /* runtime/gamepad.m, main thread: t
 int runtime_gamepad_battery_percent(void);  /* runtime/gamepad.m, main thread: the first controller's battery as a whole percent, -1 none or unknown */
 int runtime_setting_word(const char *name, char *word, size_t size);   /* runtime/gamepad.m: a one-word setting file next to controls.txt; 1 read, 0 none */
 void runtime_setting_save(const char *name, const char *word, const char *what);   /* runtime/gamepad.m: saves one; what names it in a failure line */
+int runtime_shared_setting_word(const char *name, char *word, size_t size);   /* runtime/gamepad.m: the same, shared by both games (the folder above controls.txt's) */
+void runtime_shared_setting_save(const char *name, const char *word, const char *what);
 void runtime_setting_remove(const char *name);   /* runtime/gamepad.m: back to the default (a settings panel reset) */
 /* runtime/gamepad.m, main thread: the controller layout (controller_map.h, CONTROLLER_BUTTONS entries each) in force;
    set puts one in force and saves it in controls.txt, reset goes back to the default and removes the file. */
