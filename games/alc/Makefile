@@ -69,10 +69,13 @@ $(OUT)/spirv-cross/spirv-cross:
 #   TOTK_GPU_ALLOW_SUBMIT the TotK-era kernel-panic guard; Astral submits from frame 1 on this machine.
 #   TOTK_GPU_MIDCLEAR=1   Astral clears colours mid-pass / masked / scissored on its normal boot path; the
 #                         TotK-era isolation guard aborts without it.
+# Windowed by default (runtime_front_run). Headless runs set it explicitly: TOTK_HEADLESS=1 make boot —
+# the mode test is presence-based, so an empty value would silently drop the window (the old target set
+# TOTK_HEADLESS= empty and every make boot ran without one).
 ALC_LOG ?= $(WORK)/logs/boot.log
 boot: runtime
 	@mkdir -p "$(dir $(ALC_LOG))"
-	cd "$(WORK)" && TOTK_HEADLESS=$${TOTK_HEADLESS-} TOTK_FREE_CORES=1 TOTK_GPU_ALLOW_SUBMIT=1 TOTK_GPU_MIDCLEAR=1 ./build/alc-native rewritten/v101 boot 2> "$(abspath $(ALC_LOG))"; echo "exit $$?; log: $(ALC_LOG)"
+	cd "$(WORK)" && TOTK_FREE_CORES=1 TOTK_GPU_ALLOW_SUBMIT=1 TOTK_GPU_MIDCLEAR=1 ./build/alc-native rewritten/v101 boot 2> "$(abspath $(ALC_LOG))"; echo "exit $$?; log: $(ALC_LOG)"
 
 # The player's mods, made into checked tables: exefs patches (mods/1.2.0/<name>/exefs/*.pchtxt) -> <work>/patches,
 # RomFS mods (mods/<name>/romfs/...) -> their manifest.tsv (sizes and SHA-256 of the replacements and the originals).
