@@ -1,5 +1,5 @@
 {
-    "_comment": "Verified Astral Chain 1.0.1 code (from the card's update Program NCA; the base NCA holds 1.0.0 code that the build does not use), and the base RomFS as stored on the card. The merged RomFS (base + the update's BKTR patch) and the rewritten module hashes are added by stage 1. Measured 2026-10-29 from the user's own dump with this folder's tools.",
+    "_comment": "Verified Astral Chain 1.0.1 code (the card's update Program NCA; the base NCA holds 1.0.0 code the build does not use), the rewritten modules for Apple silicon, and the RomFS merged from the base section and the update's BKTR patch. Runtime validation is recorded in CHANGELOG.md. Measured 2026-10-29 from the user's own dump with this folder's tools.",
     "title_id": "01007300020FA000",
     "update_title_id": "01007300020FA800",
     "version": 65536,
@@ -26,5 +26,18 @@
         "size": 10309560892,
         "sha256": "cdfb704316ebb0396bbc78062a55da7527f21092f6205ceb5eaa2bfa0bd13dd8",
         "files": 8701
+    },
+    "rewritten_sha256": {
+        "main.patched.bin": "3ace6e60fba9e543605e027a650d7d49e294b6bc57ea34450c5099d3d1ef4be2",
+        "main.patcharea.bin": "554e541a90a713b5b786b6d979c3c38e0c397debcf53392206f0c3e33ccea808",
+        "sdk.patched.bin": "93696b3a7165cdd487d321c7ab5cecd6874cf4e03154d6b7fca45b5a77649176",
+        "sdk.patcharea.bin": "90f2972c401101deb9c64ea4ac9fc6cad612389623900a8abfdedc3aa50c93c4"
+    },
+    "romfs": {
+        "size": 10310254332,
+        "sha256": "20904f305195bff4b4cac18413ce5b844cc0a72596c0b03ae9ad1dda5258ffb6",
+        "files": 8701,
+        "bytes_from_base": 10147756960,
+        "bytes_from_update": 182747996
     }
 }

@@ -12,7 +12,7 @@ keys and saves are never committed (see `.gitignore`).
 | Stage | Goal | State |
 |---|---|---|
 | 0 | Feasibility: does the game fit the by3 architecture? Code and data out of the dump, verified | done 2026-10-29 |
-| 1 | Code rewritten for Apple silicon; merged RomFS | in progress |
+| 1 | Code rewritten for Apple silicon; merged RomFS | done 2026-10-29 |
 | 2 | A runtime fork that boots to `nnMain` | |
 | 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | |
 | 4 | Playable: picture, audio (Wwise), input, saves; 30/60 fps and resolution patches | |
@@ -84,3 +84,57 @@ Open questions carried forward:
 - Bink 2 strategy: stub first, decoder later (stage 4).
 - `ldr:ro`, `htc`/`htcs`, `banana`/`o6j`/`pcm`/`s2g`/`ntc`/`bsdcfg` in the service list: probably allowed but
   unused; the host fails loudly if one is really called.
+
+### 2026-10-29: stage 1, the code rewritten for Apple silicon; the merged RomFS
+
+**The patch area had to move below the module base.** main decompresses to 214.9 MB, 191 MB of them zero-filled
+BSS (the engine's static arenas; the guest reaches them through adrp pairs the rewrite does not touch, so BSS
+cannot move). The rewriter appends the patch area after the image, which put it ~200 MB from the first text
+sites — beyond a B/BL's ±128 MB reach. sdk was never a problem (13 MB image). The d2r copy in
+`third_party/d2r` now writes the patch to its own file `<name>.patcharea.bin` and records a signed `PATCH_OFF`
+plus `PATCH_SIZE`/`ARENA` in `fixups.tsv`: images over 96 MB take a 32 MB arena below the module base
+(PATCH_OFF −0x2000000, every site within ~42 MB), small images keep the patch appended exactly as before
+(sdk's flat view is byte-for-byte the old one-file layout). The runtime loader maps the two parts at their
+true addresses — stage 2's `map_module` change.
+
+**Rewrite results** (`DM_RULESET=native DM_PRIVATE_GATES=0`): sdk 10,957 sites (patch 440,628 bytes), main
+5,426 sites (patch 219,824 bytes). main needed two rewriter extensions:
+
+- `ldrsw_table` (the BotW-1.6.0 jump-table shape) did not match Astral's variant at `main+0x6db4a0`: the
+  `ldrsw` writes the index register itself (E == I, perfectly fine — the index is dead after the load), and
+  the table base (`adrp x24, #0xbec000; add x24, x24, #0x944`) sits at the function's entry
+  (`0x6dad60`), ~1,800 instructions from the dispatch, not in the 48-instruction window. The scanner now
+  accepts both: after the load only the table base must survive, and the base pair is searched from the
+  function start. Five such tables matched; every entry target is checked to be an instruction of its
+  function, as before. (Table at `0xbec944`, 6 entries, targets `0x6db4a4`–`0x6db544`.)
+- One `spset` site (`mov sp, x18` — the by3-era block kind) — the earlier extension paying off.
+
+**Verification** (all recorded):
+
+- `structck.py`: sdk 0 violations, 11,106 trampoline exits all legal; main 0 violations, 5,543 exits all legal.
+- `equiv.py` (Unicorn, random states, per site ≥2 effective trials): sdk 29,508 effective trials, 0 divergent;
+  main 14,531 effective trials, 0 divergent. Negative controls: 600 mutations per module (half a trampoline
+  exit retargeted +4, half the replaced instruction nopped) — all 1,200 caught.
+- Two rewrites give identical bytes (`build_src.sha256` pins the rewriter).
+
+Pitfalls of this stage, so nobody repeats them (all in the adapted checkers, each caught by a failing run):
+a checker that walks the patch must convert decoded branch targets back to guest addresses (PC-relative
+targets inherit the flat view's shift); patch-region membership needs the upper bound once the patch is not
+the only thing above the text; capstone reports an instruction at a negative base as an unsigned 64-bit
+address; and "is this branch back to text" must ask "outside the guest patch span", not "below PATCH_OFF" —
+that one is inverted for the arena layout.
+
+**Merged RomFS.** `scripts/merge_romfs.py` (adapted from by3's merger: no sparse layer — this base is
+complete) applies the update's BKTR patch section (indirect table + one AES-CTR-Ex row) over the verified
+base `romfs.bin` and verifies the merged image through the update section's own six IVFC levels:
+629,288 blocks at level 5, 8,701 files, 10,310,254,332 bytes, SHA-256 `20904f30…`; 10,147,756,960 bytes from
+the base, 182,747,996 from the update. One real find on the way: the indirect table's storage-0 targets are
+base **section** virtual offsets — the base section begins with its own hash tree, so reads must subtract the
+base section's level-5 offset (`0x134c000`). The first attempt (reading romfs.bin directly at the target)
+failed IVFC level 5 block 9; level 4 had verified, which is what localized the defect to the base segment.
+
+`prepare_modules.py` (by3's analysis-ELF tool, `subsdk0` skipped) inventories the two modules: main exports
+24,737 symbols / imports 13; sdk and rtld recorded in `AC_build/extracted/v101/elf/`.
+
+`assets/expected-v1.0.1.json` now pins the rewritten modules (`main.patched.bin`, both `patcharea.bin`s,
+`sdk.patched.bin`) and the merged RomFS alongside the stage-0 records. The build re-checks every one of them.
