@@ -883,7 +883,7 @@ static void hid_imu_report(void *ctx, IOReturn result, void *sender, IOHIDReport
     if (!tb.denom) mach_timebase_info(&tb);
     runtime_motion_feed(acc, gyro, hid_imu_time((uint64_t)((__uint128_t)stamp * tb.numer / tb.denom), runtime_now_ns(), &imuLast));   /* the report's own receive time: see hid_imu.h */
 }
-static BOOL hid_imu_start(GCController *c) {   /* main queue: c has no GCMotion */
+static BOOL hid_imu_start(GCController *c) {   /* main queue: c has no GCMotion, or a DualShock 4 whose GCMotion yields nothing */
     if (![c.productCategory isEqualToString:GCProductCategoryHID] && ![c.productCategory isEqualToString:@"DualShock 4"]) return NO;   /* not an Xbox pad that merely sits beside one of these */
     NSMutableArray *matching = [NSMutableArray array];
     for (int i = 0; i < HID_IMU_PROFILES; i++)
@@ -957,20 +957,27 @@ void runtime_feedback_attach(GCController *c) {   /* main queue */
             if (r > 0) fprintf(stderr, "[gyro] axes remapped by TOTK_GYRO_AXES=%s\n", axes);
         });
         GCMotion *m = c.motion;
-        if (motionPad && motionPad != c) {   /* one motion feed only: two controllers would be mixed into one fusion */
-            motionPad.motion.valueChangedHandler = nil;
-            /* A controller that needed manual activation keeps its sensors powered until told otherwise. */
-            if (motionPad.motion.sensorsRequireManualActivation) motionPad.motion.sensorsActive = NO;
-            runtime_motion_live(0);
-        }
         if ([c.productCategory isEqualToString:@"DualShock 4"]) {   /* its GCMotion yields 0 samples: read its HID IMU instead */
-            if (hid_imu_start(c)) return;   /* the v1 Bluetooth profile; v2 or USB has no matching profile and keeps GCMotion below */
+            GCController *before = motionPad;
+            if (hid_imu_start(c)) {   /* the v1 Bluetooth profile; v2 or USB has no matching profile and keeps GCMotion below */
+                if (before && before != c) {   /* one motion feed only, as below (hid_imu_start has made c the feed) */
+                    before.motion.valueChangedHandler = nil;
+                    if (before.motion.sensorsRequireManualActivation) before.motion.sensorsActive = NO;
+                }
+                return;
+            }
         } else if (!m || !m.hasRotationRate) {
             if ([c.productCategory containsString:@"Joy-Con"]) {   /* PR #889: a paired Joy-Con's right HID sensor */
                 hid_motion_stop(); zeroSince = 0; motionSeen = hidAsked = NO;
                 motionPad = c; hid_motion_start();
             } else if (!hid_imu_start(c)) fprintf(stderr, "[gyro] %s has no gyro: no motion from it\n", name);   /* PR #309: IMU in its HID reports (8BitDo Ultimate 2) */
             return;
+        }
+        if (motionPad && motionPad != c) {   /* one motion feed only: two controllers would be mixed into one fusion */
+            motionPad.motion.valueChangedHandler = nil;
+            /* A controller that needed manual activation keeps its sensors powered until told otherwise. */
+            if (motionPad.motion.sensorsRequireManualActivation) motionPad.motion.sensorsActive = NO;
+            runtime_motion_live(0);
         }
         if (m.sensorsRequireManualActivation) m.sensorsActive = YES;
         hid_motion_stop(); zeroSince = 0; motionSeen = hidAsked = NO; runtime_motion_deadzone_default(0);
