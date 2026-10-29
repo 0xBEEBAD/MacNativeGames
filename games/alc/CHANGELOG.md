@@ -399,3 +399,11 @@ The game was left running for the user to reach the character select again — t
 service. Also fixed en route: the runtime shader translation had silently fallen back to a .NET script
 this fork never had; `make shader-tools` (the prebuilt, SHA-256-checked `totk_xlate` + SPIRV-Cross) puts
 the real service in place.
+
+### 2026-10-29: stage 4, verified past the character select — the prologue runs
+
+Played on a Mac (v1.0.1): the character select renders the names (the pl:u/GetSharedFont fix holds), a
+character is picked, and the prologue runs normally from there; ~24 700 frames presented over the session at
+the game's own 30 fps pacing, audio out through Core Audio, and the session ended through the window's
+graceful-shutdown path — that path is verified too. The frontier moves to the first battle, the cutscenes
+(Bink2) and the rest of stage 4: audio audibility, the 30/60 fps and resolution patches, the app.
