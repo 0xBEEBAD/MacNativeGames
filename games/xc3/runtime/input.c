@@ -30,7 +30,7 @@ static void user_input(const char *what){
 /* Keys from the window are the user's; scripted and auto-load presses use the synthetic entry.
    Key 1 toggles the shortcut reminder in frontend.m. TOTK's keys 2-4 (frame interpolation, 2K modes, ultrawide) are off
    in this port: interpolated frames are shown without the game's crop, so XC3's 1280x720 cutscenes, drawn in the corner
-   of a 1920x1080 picture, came out in the top-left corner over old frames (owner, 2026-10-29); 2K modes and ultrawide
+   of a 1920x1080 picture, came out in the top-left corner over old frames (seen in play, PR #1309); 2K modes and ultrawide
    have nothing behind them for this game (game_patches.c). */
 void runtime_input_key_synthetic(unsigned code,int down){if(code>=128)return;pthread_mutex_lock(&inputLock);int press=down&&!keys[code];if(down&&!keys[code])pending|=button(code);keys[code]=(unsigned char)!!down;pthread_mutex_unlock(&inputLock);
  if(press&&code==18){extern void runtime_shortcut_help_toggle(void);runtime_shortcut_help_toggle();}}
