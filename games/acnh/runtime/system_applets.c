@@ -3,8 +3,9 @@
    sm: service "pctl" not implemented, from nn::pctl::CheckFreeCommunicationPermission). Each answers as a console with
    no restrictions and no network would:
      nn::pctl   parental controls: free communication is allowed (letters, the mailbox; nn::pctl::Initialize and the
-                stereo-vision calls are in services.c)
+                stereo-vision calls are in services.c, IsFreeCommunicationAvailable in applet_host.c)
      nn::err    the error applet: the error is logged, the game goes on as after the player closed the dialog
+                (ShowError(Result) is applet_host.c's, as for 1.2.1)
      nn::ec     the eShop page (Happy Home Paradise): logged; nothing opens
      nn::account::LoadProfileImage  the local user's picture (account.c has the user and the rest of nn::account)
      nn::album  the in-game camera's photos: written as PNG to "Screenshots" next to the profile folder (the app's
@@ -23,7 +24,6 @@
 #include <unistd.h>
 
 /* ---------- nn::pctl ---------- */
-static bool pctl_free_communication_available(void) { return true; }
 static uint32_t pctl_check_free_communication(bool show_ui) {
     static int once; if (!once++) fprintf(stderr, "[totk] parental controls: free communication allowed (local, ui %d)\n", show_ui);
     return 0;
@@ -32,7 +32,6 @@ static uint32_t pctl_check_free_communication(bool show_ui) {
 /* ---------- nn::err ---------- */
 typedef struct { uint32_t category, number; } ErrorCode;   /* nn::err::ErrorCode: 2xxx-yyyy */
 static void err_show_code(ErrorCode code) { fprintf(stderr, "[totk] error applet: %04u-%04u (not shown; the game continues)\n", 2000 + code.category, code.number); }
-static void err_show_result(uint32_t result) { fprintf(stderr, "[totk] error applet: result %#x (module %u, %u; not shown; the game continues)\n", result, result & 0x1ff, (result >> 9) & 0x1fff); }
 static void err_show_variant(const void *variant) { (void)variant; fprintf(stderr, "[totk] error applet: an ErrorResultVariant (not shown; the game continues)\n"); }
 
 /* ---------- nn::ec ---------- */
@@ -109,10 +108,8 @@ static uint32_t load_profile_image(size_t *size, void *out, size_t capacity, con
 
 void *runtime_applets_override(const char *name) {
     static const struct { const char *name; void *fn; } entries[] = {
-        {"_ZN2nn4pctl28IsFreeCommunicationAvailableEv", pctl_free_communication_available},
         {"_ZN2nn4pctl32CheckFreeCommunicationPermissionEb", pctl_check_free_communication},
         {"_ZN2nn3err9ShowErrorENS0_9ErrorCodeE", err_show_code},
-        {"_ZN2nn3err9ShowErrorENS_6ResultE", err_show_result},
         {"_ZN2nn3err9ShowErrorERKNS0_18ErrorResultVariantE", err_show_variant},
         {"_ZN2nn2ec30ShowShopApplicationInformationEv", ec_show_shop},
         {"_ZN2nn5album10InitializeEv", album_initialize},

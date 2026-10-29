@@ -10,10 +10,8 @@ RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
 # The list made on 2026-10-29 from the imports of main and subsdk0 that no override named, reachable in single-player play.
 REQUIRED = {
     "system_applets.c": [
-        "_ZN2nn4pctl28IsFreeCommunicationAvailableEv",
         "_ZN2nn4pctl32CheckFreeCommunicationPermissionEb",   # the mailbox
-        "_ZN2nn3err9ShowErrorENS0_9ErrorCodeE", "_ZN2nn3err9ShowErrorENS_6ResultE",
-        "_ZN2nn3err9ShowErrorERKNS0_18ErrorResultVariantE",
+        "_ZN2nn3err9ShowErrorENS0_9ErrorCodeE", "_ZN2nn3err9ShowErrorERKNS0_18ErrorResultVariantE",
         "_ZN2nn2ec30ShowShopApplicationInformationEv",
         "_ZN2nn5album10InitializeEv", "_ZN2nn5album8FinalizeEv",
         "_ZN2nn5album14SaveScreenshotEPKvmNS0_9ImageSizeENS0_17AlbumReportOptionE",
@@ -30,6 +28,8 @@ REQUIRED = {
         "_ZN2nn3ssl7Context15ImportClientPkiEPmPKcS4_jj", "_ZN2nn3ssl7Context9ImportCrlEPmPKcj",
         "_ZN2nn3ssl10Connection19SetSessionCacheModeENS1_16SessionCacheModeE", "_ZN2nn3nsd9ResolveExEPNS0_4FqdnERKS1_"],
     "input.c": ["_ZN2nn3hid23MergeSingleJoyAsDualJoyERKjS2_"],
+    # Already answered before 3.0.1 (1.2.1 keeps these handlers): system_applets.c must not name them again.
+    "applet_host.c": ["_ZN2nn4pctl28IsFreeCommunicationAvailableEv", "_ZN2nn3err9ShowErrorENS_6ResultE"],
     "account.c": [
         "_ZN2nn7account8OpenUserEPNS0_10UserHandleERKNS0_3UidE", "_ZN2nn7account18ListQualifiedUsersEPiPNS0_3UidEi",
         "_ZN2nn7account20PromoteQualificationERKNS0_3UidE",
@@ -51,6 +51,17 @@ class HostImportTests(unittest.TestCase):
             for name in names:
                 with self.subTest(name=name):
                     self.assertRegex(table, r'\{"' + re.escape(name) + r'",\s*[a-z_]+\}')
+
+    def test_each_name_has_one_table(self):
+        # system_applets.c is consulted before the other tables (services.c): a name it repeated would replace the
+        # handler 1.2.1 was verified with.
+        names = {}
+        for path in sorted(RUNTIME.glob("*.[cm]")):
+            for name in re.findall(r'\{"(_ZN[^"]+)",\s*[a-z_]+\}', path.read_text()):
+                names.setdefault(name, set()).add(path.name)
+        for name in re.findall(r'\{"(_ZN[^"]+)"', (RUNTIME / "system_applets.c").read_text()):
+            with self.subTest(name=name):
+                self.assertEqual(names[name], {"system_applets.c"})
 
     def test_the_applets_table_is_consulted(self):
         services = (RUNTIME / "services.c").read_text()

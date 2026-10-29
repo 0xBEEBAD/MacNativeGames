@@ -107,6 +107,14 @@ python3 games/acnh/build_host.py \
   --shared-fonts /path/to/firmware/shared-fonts
 ```
 
+`build_host.py` records the game version in `build/version-config.h`; the runtime is compiled for that version only
+(`runtime/game_version.h`), and the packager refuses a runtime built for another version. A native work folder made
+before 3.0.1 support has no such file and is always 1.2.1: `make` writes 1.2.1's for it, and running `build_host.py`
+again on the folder writes it too. The 1.2.1 game-address patches stay 1.2.1-only. `tools/extract_app_icon.py` and
+`tools/prepare_shader_seed.py` (see the 3.0.1 section) take any prepared folder; both are optional for packaging.
+The repository does not ignore `build/` or `game-assets/` at its root: when you keep game files there as the 3.0.1
+section does, list them in `.git/info/exclude`.
+
 ### 3. Precompile Metal Shaders
 Translate runtime shaders offline into Metal bytecode (`.metallib`):
 ```sh
@@ -158,6 +166,7 @@ nothing to aim and no camera to turn with it.
 | D-pad left | d-pad left | 2 | side button 4 |
 | D-pad right | d-pad right | 4 | side button 5 |
 
+The layout, the settings panel and the host functions behind the crash fixes are the same for 1.2.1 and 3.0.1.
 Key 1, or L3 + R3 together on a controller, opens the settings panel; Esc or key 1 closes it. It has three pages:
 
 - **Display:** the overlay (FPS, shaders and load; FPS only; off), an FPS graph, the frame rate (30 fps, the game's

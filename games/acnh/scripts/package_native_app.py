@@ -325,12 +325,14 @@ def package(work: Path, prepared: Path, fonts: Path, output: Path, icon: Path = 
             "LSMinimumSystemVersion": os.environ.get("MACOSX_DEPLOYMENT_TARGET", "26.0"),
             "NSHighResolutionCapable": True,
         }
+        # The source revision, when the project is a Git checkout (a downloaded archive packages without it).
         commit = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
-                                capture_output=True, text=True, check=True).stdout.strip()
-        dirty = subprocess.run(["git", "-C", str(REPO_ROOT), "status", "--porcelain", "--", "games/acnh"],
-                               capture_output=True, text=True, check=True).stdout.strip()
-        info["MNGSourceCommit"] = commit
-        info["MNGSourceRevision"] = commit + ("-dirty" if dirty else "")
+                                capture_output=True, text=True, check=False)
+        if commit.returncode == 0:
+            dirty = subprocess.run(["git", "-C", str(REPO_ROOT), "status", "--porcelain", "--", "games/acnh"],
+                                   capture_output=True, text=True, check=False).stdout.strip()
+            info["MNGSourceCommit"] = commit.stdout.strip()
+            info["MNGSourceRevision"] = commit.stdout.strip() + ("-dirty" if dirty else "")
         with (contents / "Info.plist").open("wb") as f:
             plistlib.dump(info, f)
 

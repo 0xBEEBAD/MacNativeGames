@@ -83,13 +83,13 @@ class SettingsPanelSourceTests(unittest.TestCase):
         self.assertEqual(sorted(offered), sorted(accepted), "the panel offers exactly what services.c reads back")
         self.assertFalse(set(accepted) - set(system), "every language is one the game's settings service lists")
 
-    def test_owner_preference_no_contribution_or_star(self):
-        # AGENTS.md: the owner's settings panel omits the shader/pipeline contribution and project-star actions.
+    def test_no_contribution_or_star(self):
+        # ACNH has no shader-list contribution flow; its panel carries neither that action nor the project-star link.
         for word in ("contribute:", "star:", "TOTK_REPO_URL", "contrib_submit", "totk_shader_contrib"):
             self.assertNotIn(word, self.panel)
 
     def test_no_other_game_includes(self):
-        # AGENTS.md: the ACNH build does not read another game's implementation.
+        # games/acnh is self-contained: its build does not read another game's implementation.
         for path in [RUNTIME / "settings_panel.h", RUNTIME / "bindings_diagram.h", RUNTIME / "keyboard_map.h", RUNTIME / "frontend.m"]:
             for line in path.read_text().splitlines():
                 if line.startswith("#include") or line.startswith("#import"):

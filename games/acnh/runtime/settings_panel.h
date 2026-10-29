@@ -31,7 +31,7 @@
    a drawing and pick what it does; on the list click a box, then press a key or a mouse button (key 1 cancels; Command
    keys stay the system's) or, in the controller column, a controller button; with a controller, pick a row and press
    A, then the new button. Right-click clears a box. Two buttons reset the keyboard and mouse, or the controller.
-   The shader contribution and star buttons of games/totk are left out (the owner's settings-panel preference).
+   The shader contribution and star buttons of games/totk are left out: this game has no shader-list contribution flow.
    A setting this game or start cannot change shows its one value, greyed out. While the panel is open the game gets no
    keyboard, mouse or controller input (TOTKInputView and gamepad capture). The controls read their values again twice a
    second, so they always show what is in force. */

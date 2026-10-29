@@ -14,6 +14,11 @@ GENERATED := $(OUT)/runtime_tables.h $(OUT)/romfs_config.h $(OUT)/shared_fonts_c
 
 all: $(OUT)/acnh-native
 
+# build_host.py writes the game version; a host work folder made before 3.0.1 support (always 1.2.1) gets 1.2.1's.
+$(OUT)/version-config.h:
+	@test -f "$(OUT)/runtime_tables.h" || { echo "$(OUT) has no host tables: run build_host.py first" >&2; exit 1; }
+	printf '#define ACNH_VERSION_RAW 458752\n' > "$@"
+
 $(OUT)/obj/%.o: % $(GFX_HEADERS) $(OUT)/version-config.h
 	@mkdir -p "$(dir $@)"
 	xcrun clang $(NATIVE_OPT) -g -Wall -Wextra $(GFX_FLAGS) -c "$<" -o "$@"

@@ -11,10 +11,10 @@ Where the shaders are (a scan of 3.0.1): the uber shader and the other Shader/ a
 Layout/ resources, the few Model/ files with their own BNSH, System/, and the main module. Every BNSH found is read as
 NVN does: the shader key is SHA-256 of the control section (its first min(word +0x20, 0x880) bytes) and the code up to
 the control's code size, as the runtime keys it (nvn_mtl.m ctl_key_len); Animal Crossing binds these sections
-unmodified (405 of the 474 shaders of the owner's sessions had a key found here). Vertex shaders are translated with
-depth_minus_w (the game selects NVN's near-is-minus-w depth mode; every vertex variant of the owner's cache has it).
+unmodified (405 of the 474 shaders of a player's sessions had a key found here). Vertex shaders are translated with
+depth_minus_w (the game selects NVN's near-is-minus-w depth mode; every vertex variant of a player's cache has it).
 A shader whose translation names shadow-compare slots (compare_slots) is translated a second time with depth textures
-bound there, as games/totk's seed does: the game binds its shadow maps there, and 90 of the 475 variants of the owner's
+bound there, as games/totk's seed does: the game binds its shadow maps there, and 90 of the 475 variants of a player's
 sessions were those.
 
 The requests are the runtime's own (totk_shader_rt.m totk_rt_variant): the code after the 0x30-byte NVN header (compute
@@ -335,11 +335,15 @@ def main():
     p.add_argument("--prepared", type=Path, required=True, help="the prepare.py work folder (update/romfs, update/rewritten)")
     p.add_argument("--translator", type=Path, required=True, help="the pinned totk_xlate (the native work's build/shader-service)")
     p.add_argument("--output", type=Path, required=True, help="the seed folder (package_native_app.py bundles <work>/build/shader-seed)")
-    p.add_argument("--version", default="3.0.1")
+    p.add_argument("--version", help="the label in the seed's manifest (default: the prepared folder's game version)")
     p.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 4) - 2))
     a = p.parse_args()
     if not a.translator.is_file():
         raise SystemExit(f"{a.translator}: no translator (run build_host.py first)")
+    if a.version is None:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+        from games.acnh.prepare import prepared_profile
+        a.version = prepared_profile(a.prepared.resolve())["display_version"]
     prepare(a.prepared.resolve(), a.translator.resolve(), a.output.resolve(), a.jobs, a.version)
 
 
