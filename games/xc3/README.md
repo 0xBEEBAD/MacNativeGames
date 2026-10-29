@@ -24,7 +24,7 @@ Tested on one Mac: Apple M5, 32 GB, macOS 27.0.1, game version 1.0.0.
 | Sound | done: Wwise through the audio renderer; checked by ear |
 | Save and load | done: saved in Everblight Plain, quit, started again and loaded at the same place |
 | Frame rate | 30 fps, as on the Switch; the GPU takes about 6–7 ms per frame in Everblight Plain |
-| App | not done yet: `make app` is the copy from ot0 and has not been tried for this game |
+| App | done: `make app` builds a self-contained `Xenoblade Chronicles 3.app` (settings window, then the game); it runs with the work folder renamed |
 | Update | not done yet: only 1.0.0 is supported |
 
 ## Known gaps
@@ -34,7 +34,7 @@ Tested on one Mac: Apple M5, 32 GB, macOS 27.0.1, game version 1.0.0.
 - One `DrawTransformFeedback` with nothing captured, near the second prologue movie (logged once).
 - Under the game's second sampler pool, a combined handle with sampler 0 is read as a separate texture handle.
 - Rare, brief screen tearing or thin black lines while playing.
-- A shader seen for the first time is translated when it is first used, so the first run stutters more than later ones (the cache is in the work folder).
+- A shader seen for the first time is translated and compiled when it is first used. On the first run (of `make boot` or of the app, which keeps its own cache) a loading screen can wait for that, once for up to about a minute; later runs load the shaders from the cache.
 
 ## Inputs
 
@@ -64,12 +64,19 @@ make boot VERSION=v100
 
 Verification of the rewrite (each module): `third_party/d2r/structck.py XC3_build/rewritten/v100 <module> XC3_build/extracted/v100/exefs/<module>` and `third_party/d2r/equiv.py` with the same arguments plus `--min-eff 8`. Set `DM_ROOT` to the work folder so `structck.py` keeps its cache there. `make prepare` checks every rewritten module against `rewritten_sha256` in the manifest.
 
-Keys as in the other ports: WASD the left stick, arrow keys the right stick (camera), J is A, K or Space is B, I is X, U is Y, Q / E are L / R, Option / Shift are ZL / ZR, Return is +, Tab or Escape is −, T F G H the D-pad. A game controller works too.
+Keys as in the other ports: WASD the left stick, arrow keys the right stick (camera), J is A, K or Space is B, I is X, U is Y, Q / E are L / R, Option / Shift are ZL / ZR, Return is +, Tab or Escape is −, T F G H the D-pad. A game controller works too. Key 1 shows or hides the overlays; the other TotK shortcut keys (2–4) do nothing in this port.
 
 Run this way, saves, the profile and the pseudo device id are written to `XC3_build/user-data`.
 
+## The app
+
+`make app VERSION=v100 PY=$PY APP=<path>.app` builds the app: a launcher with a settings window and, in `Contents/Resources/game`, everything the game reads (the runtime, the shader tools, the rewritten modules, the RomFS and the system fonts), cloned from the work folder. On the work folder's APFS volume the clones take no extra space; on another volume they are copies (about 14 GB). Add `GAME=<base>.nsp KEYS=<prod.keys>` to give it the game's own icon, read from your NSP at build time. The app keeps working when the work folder is moved or deleted.
+
+The settings window chooses the monitor, window or full screen, the window size or full-screen resolution, MetalFX or plain upscaling, the frame rate overlay, and whether new shaders are built in the background. There is no frame rate choice: the game holds itself to 30 fps, as on the Switch.
+
+The app writes only to `~/Library/Application Support/MacNativeGames/XC3` (saves, profile, shader cache) and `~/Library/Logs/MacNativeGames/xc3.log`. Its saves are separate from those of `make boot`, which are in `XC3_build/user-data`.
+
 ## Next
 
-- The app (`make app`) and its launcher.
 - The game's update, when it is dumped.
 - The known gaps above, starting with geometry shaders of other input topologies.

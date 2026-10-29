@@ -179,7 +179,8 @@ def shared_fonts_config(work, out):
         for f in manifest['fonts']:
             path = folder / f"{f['type']}-{f['name']}.bfttf"
             assert path.stat().st_size == f['bfttf_bytes'] == f['font_bytes'] + 8
-            rows.append(f'{{"{path}",{f["bfttf_bytes"]}ULL,{f["font_bytes"]}ULL,"{f["sha256"]}"}}')
+            # Relative to the work folder: the runtime runs from it (make boot) or from the app's copy of it (make app).
+            rows.append(f'{{"{path.relative_to(work)}",{f["bfttf_bytes"]}ULL,{f["font_bytes"]}ULL,"{f["sha256"]}"}}')
         state = 'loaded from ' + str(folder)
     (out / 'shared_fonts_config.h').write_text('#define SHARED_FONT_COUNT 6\n#define SHARED_FONT_ROWS ' + ','.join(rows) + '\n')
     return state

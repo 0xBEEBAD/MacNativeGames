@@ -3,7 +3,6 @@
 #include <string.h>
 #include <unistd.h>
 
-static const int fps_values[] = {120, 60, 30};
 static const int sizes[][2] = {{1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}};
 static const int outputs[] = {0, 2160, 1440, 1080, 900};
 
@@ -19,7 +18,7 @@ static NSString *screen_name(NSScreen *s) { return s.localizedName ?: @"?"; }
 @interface Launcher : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @property NSWindow *window;
 @property NSPopUpButton *size, *monitor, *output;
-@property NSSegmentedControl *fps, *display, *scaler;
+@property NSSegmentedControl *display, *scaler;
 @property NSButton *hud, *asyncShaders, *play; @property NSTextField *note;
 @property NSGridView *grid; @property NSInteger sizeRow, outputRow;
 @property BOOL launch;
@@ -62,7 +61,6 @@ static const CGFloat kWidth = 520, kLabelWidth = 120;
 - (void)applicationDidFinishLaunching:(NSNotification *)n {
     (void)n;
     NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
-    self.fps = [self segments:@[@"Up to 120", @"60", @"30"]];
     self.monitor = [NSPopUpButton new]; self.monitor.target = self; self.monitor.action = @selector(monitorChanged:);
     for (NSScreen *s in NSScreen.screens) {
         NSSize px = screen_pixels(s);
@@ -88,7 +86,6 @@ static const CGFloat kWidth = 520, kLabelWidth = 120;
         @[[self label:@"Window size"], self.size],
         @[[self label:@"Resolution"], self.output],
         @[[self label:@"Upscaling"], self.scaler],
-        @[[self label:@"Frame rate"], self.fps],
     ]];
     self.sizeRow = 2; self.outputRow = 3;
     NSTextField *overlayLabel = [self label:@"Overlay"], *shaderLabel = [self label:@"Shaders"];
@@ -137,7 +134,6 @@ static const CGFloat kWidth = 520, kLabelWidth = 120;
     if (mi == NSNotFound) mi = 0;
     for (NSUInteger i = 0; i < all.count; i++) if (m && [screen_name(all[i]) isEqualToString:m]) mi = i;
     [self.monitor selectItemAtIndex:(NSInteger)mi];
-    int fps = [d objectForKey:@"fps"] ? (int)[d integerForKey:@"fps"] : 120; self.fps.selectedSegment = fps == 30 ? 2 : fps == 60 ? 1 : 0;
     self.display.selectedSegment = [d boolForKey:@"fullscreen"];
     NSInteger s = [d objectForKey:@"size"] ? [d integerForKey:@"size"] : 2; [self.size selectItemAtIndex:s >= 0 && s < 4 ? s : 2];
     self.scaler.selectedSegment = [d objectForKey:@"metalfx"] && ![d boolForKey:@"metalfx"] ? 1 : 0;
@@ -158,8 +154,6 @@ static const CGFloat kWidth = 520, kLabelWidth = 120;
     [self.grid rowAtIndex:self.sizeRow].hidden = full; [self.grid rowAtIndex:self.outputRow].hidden = !full;
     [self fitWindow];
     NSMutableString *s = [NSMutableString string];
-    NSInteger hz = self.chosenScreen.maximumFramesPerSecond;
-    if (self.fps.selectedSegment == 0 && hz < 120) [s appendFormat:@"This monitor refreshes at %ld Hz, so it shows at most %ld frames per second. ", (long)hz, (long)hz];
     self.play.enabled = YES;
     if (!game_binary() || ![NSFileManager.defaultManager isExecutableFileAtPath:game_binary()]) {
         [s appendString:@"The game is missing from this app. Build it again with make app."]; self.play.enabled = NO;
@@ -168,7 +162,6 @@ static const CGFloat kWidth = 520, kLabelWidth = 120;
 }
 - (void)save {
     NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
-    [d setInteger:fps_values[self.fps.selectedSegment] forKey:@"fps"];
     [d setBool:self.display.selectedSegment == 1 forKey:@"fullscreen"]; [d setInteger:self.size.indexOfSelectedItem forKey:@"size"];
     [d setInteger:self.output.selectedItem.tag forKey:@"output"]; [d setBool:self.scaler.selectedSegment == 0 forKey:@"metalfx"];
     [d setObject:screen_name(self.chosenScreen) forKey:@"monitor"]; [d setBool:self.hud.state forKey:@"hud"]; [d setBool:self.asyncShaders.state forKey:@"asyncShaders"];
@@ -200,9 +193,9 @@ int main(int argc, char **argv) {
         if (!make_dir(profile) || !make_dir(slot) || !make_dir(logs)) { fail([NSString stringWithFormat:@"%@", data]); return 1; }
         if (chdir(game.fileSystemRepresentation)) { fail(game); return 1; }
 
-        int fps = [d objectForKey:@"fps"] ? (int)[d integerForKey:@"fps"] : 120;
-        if (fps == 30) { setenv("DM_PRESENT_HZ", "60", 1); setenv("TOTK_UNCAPPED", "0", 1); }
-        else setenv("TOTK_UNCAPPED_HZ", fps == 60 ? "60" : "120", 1);
+        /* No frame-rate choice: the game holds itself to 30 fps and has no unlock patch (yet), so frames follow the game's own
+           present interval on every display, as `make boot` does. */
+        setenv("TOTK_UNCAPPED", "0", 1);
 
         NSArray<NSScreen *> *all = NSScreen.screens; NSUInteger mi = [all indexOfObject:NSScreen.mainScreen];
         if (mi == NSNotFound) mi = 0;
@@ -236,8 +229,8 @@ int main(int argc, char **argv) {
         NSString *log = [logs stringByAppendingPathComponent:@"xc3.log"], *prev = [logs stringByAppendingPathComponent:@"xc3.previous.log"];
         [NSFileManager.defaultManager removeItemAtPath:prev error:nil]; [NSFileManager.defaultManager moveItemAtPath:log toPath:prev error:nil];
         FILE *lf = fopen(log.fileSystemRepresentation, "w"); if (lf) { dup2(fileno(lf), STDOUT_FILENO); dup2(fileno(lf), STDERR_FILENO); fclose(lf); }
-        fprintf(stderr, "[launcher] game %s, version %s, frame rate %d, display %s, fullscreen %s, window %s, drawable scale %s, MetalFX %s, mod %s\n",
-                game.UTF8String, game_version().UTF8String, fps, getenv("XC3_DISPLAY"), full ? "yes" : "no", getenv("TOTK_WINDOW_SIZE"),
+        fprintf(stderr, "[launcher] game %s, version %s, display %s, fullscreen %s, window %s, drawable scale %s, MetalFX %s, mod %s\n",
+                game.UTF8String, game_version().UTF8String, getenv("XC3_DISPLAY"), full ? "yes" : "no", getenv("TOTK_WINDOW_SIZE"),
                 getenv("TOTK_DRAWABLE_SCALE") ?: "1", getenv("TOTK_MFX_OUTPUT") ? "on" : "off", getenv("TOTK_ROMFS_MODS"));
         NSString *rewritten = [@"rewritten" stringByAppendingPathComponent:game_version()];
         char *const args[] = {(char *)game_binary().fileSystemRepresentation, (char *)rewritten.fileSystemRepresentation, "boot", NULL};

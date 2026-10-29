@@ -10,6 +10,24 @@ A copy of `games/ot0` at upstream commit `5ab07b7` (2026-10-28); see [third_part
 
 ## Log
 
+### 2026-10-29: stage 7, the app
+
+`make app` builds `Xenoblade Chronicles 3.app` from the work folder, with the launcher copied from ot0. Changes for this game:
+- The frame rate choice is gone. Ot0 needed it for its Unreal tick-rate patch, but this game holds itself to 30 fps and has no unlock. The app and `make boot` now both run with `TOTK_UNCAPPED=0`, so frames follow the game's own present interval on any display.
+- TOTK's shortcut keys 2–4 are off. The owner's first session in the app showed cutscenes enlarged and shifted to the top-left corner. The log showed key 2 had turned on MetalFX frame interpolation, and interpolated frames are shown without the game's crop: the game draws its cutscenes at 1280×720 in the corner of a 1920×1080 picture. Keys 3 and 4 (2K modes, ultrawide) had nothing behind them for this game. The in-game help now lists key 1 only.
+- The system fonts were found through absolute paths into the work folder. They are now relative to the folder the runtime runs from (the work folder, or the app's `game` folder), and `make app` bundles them. The game has not asked for them so far.
+
+Verified (Apple M5, macOS 27.0.1, 1.0.0):
+
+| Check | Result |
+|---|---|
+| `make app` with the game's icon | builds in about 30 s; `codesign --verify --deep --strict` passes, also after three runs |
+| Work folder renamed, game started from inside the app with the launcher's settings (MetalFX on, 1920×1080 window) | boots, difficulty selection renders, 150 s with no crash |
+| First run with an empty shader cache | one loading screen waits about 50 s for 92 pipelines and 10 libraries to compile |
+| Second run | no wait; 30 fps |
+| Started from Finder | works (owner): settings window, then the game through the opening |
+| Cutscene after pressing 2 | enlarged into the top-left corner until restart; fixed by turning keys 2–4 off |
+
 ### 2026-10-29: stage 6, played by hand; save and load
 
 The owner played the game through `make boot` (two fixes to the target: it opened no window and submitted no GPU work). They walked and fought in Everblight Plain, saved, quit, started again and loaded the save. All worked. Rare, brief screen tearing or thin black lines remain.

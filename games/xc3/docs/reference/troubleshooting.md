@@ -11,6 +11,7 @@ Symptom → cause → fix, added as problems are solved. Search this file before
 | Exit 142 | the 2-minute alarm of the boot script, not a crash | — | — |
 | `make boot` exits 1 with `VI requires native macOS window` | the target always set `TOTK_HEADLESS` (empty), and the runtime goes headless when the variable exists | fixed 2026-10-29: the target no longer sets it | stage 6 |
 | `make boot` shows "Warming shaders 100%" forever; the log says `GPU submission disabled` | the shared layer submits no GPU work unless `TOTK_GPU_ALLOW_SUBMIT=1` (the app sets it, the target did not) | fixed 2026-10-29: the target sets it by default | stage 6 |
+| Cutscenes enlarged and shifted to the top-left until restart | key 2 had turned on MetalFX frame interpolation; interpolated frames ignore the game's 1280×720 crop | fixed 2026-10-29: keys 2–4 are off in `runtime/input.c` | stage 7 |
 
 ## Before adding a workaround
 - Is the check that failed correct? Never weaken hash, structure or equivalence checks to get past an error.
