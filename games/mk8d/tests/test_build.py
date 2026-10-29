@@ -266,6 +266,21 @@ class BuildTests(unittest.TestCase):
             (device / 'rp00.dat').write_bytes(b'replay 2')   # a change in the device save alone is a change too
             self.assertIn('saves backed up to', launch(10)[0])
 
+    @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('make') and shutil.which('clang'), 'the host tests build on macOS only')
+    def test_controller_applet_gives_focus_back(self):
+        # The copied host's t_hid.c (players, controllers, the controller applet): the game profile header comes from the committed game.tsv, as the host makes it
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            for name in ('host', 'games'):
+                shutil.copytree(GAME / 'runtime' / name, root / name)
+            host = root / 'host'
+            subprocess.run(['make', '-s', f'GAME={build.TITLE}', f'gen/{build.TITLE}/game_profile.h'], cwd=host, check=True, capture_output=True)
+            subprocess.run(['clang', '-O1', '-Wall', '-Werror', '-Wno-unused-function', '-I..', f'-I../gen/{build.TITLE}', f'-I../../games/{build.TITLE}',
+                            '-o', root / 't_hid', 't_hid.c', '../hle_haptics.c'], cwd=host / 'tests', check=True)
+            out = subprocess.run([root / 't_hid'], capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stderr[-2000:])
+            self.assertRegex(out.stdout, r'hid players: \d+ checks, 0 failed')
+
     def test_build_environment_disables_nuget_audit(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(build.environment(Path(tmp))['NuGetAudit'], 'false')
