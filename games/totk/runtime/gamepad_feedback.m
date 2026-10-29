@@ -463,7 +463,7 @@ static const HidImuProfile *imuProfile;   /* main run loop: the pad hid_imu_star
 static GCController *hidRumblePad;   /* main queue */
 static dispatch_queue_t hidOut;      /* every output report, in order; the packet counter is its own */
 static uint8_t hidPacket;            /* hidOut */
-static uint8_t hidReport[64];
+static uint8_t hidReport[128];   /* room for the DS4's 78-byte report, the largest */
 static BOOL hidJoyConRight; /* local: paired original Joy-Con uses the right IMU */
 static uint64_t hidLast;
 static BOOL hidUserCalibration;
@@ -884,7 +884,7 @@ static void hid_imu_report(void *ctx, IOReturn result, void *sender, IOHIDReport
     runtime_motion_feed(acc, gyro, hid_imu_time((uint64_t)((__uint128_t)stamp * tb.numer / tb.denom), runtime_now_ns(), &imuLast));   /* the report's own receive time: see hid_imu.h */
 }
 static BOOL hid_imu_start(GCController *c) {   /* main queue: c has no GCMotion */
-    if (![c.productCategory isEqualToString:GCProductCategoryHID]) return NO;   /* not an Xbox pad that merely sits beside one of these */
+    if (![c.productCategory isEqualToString:GCProductCategoryHID] && ![c.productCategory isEqualToString:@"DualShock 4"]) return NO;   /* not an Xbox pad that merely sits beside one of these */
     NSMutableArray *matching = [NSMutableArray array];
     for (int i = 0; i < HID_IMU_PROFILES; i++)
         [matching addObject:@{@kIOHIDVendorIDKey: @(hid_imu_profiles[i].vendor), @kIOHIDProductIDKey: @(hid_imu_profiles[i].product)}];
@@ -957,18 +957,20 @@ void runtime_feedback_attach(GCController *c) {   /* main queue */
             if (r > 0) fprintf(stderr, "[gyro] axes remapped by TOTK_GYRO_AXES=%s\n", axes);
         });
         GCMotion *m = c.motion;
-        if (!m || !m.hasRotationRate) {
-            if ([c.productCategory containsString:@"Joy-Con"]) {   /* PR #889: a paired Joy-Con's right HID sensor */
-                hid_motion_stop(); zeroSince = 0; motionSeen = hidAsked = NO;
-                motionPad = c; hid_motion_start();
-            } else if (!hid_imu_start(c)) fprintf(stderr, "[gyro] %s has no gyro: no motion from it\n", name);   /* PR #309: IMU in its HID reports (8BitDo Ultimate 2) */
-            return;
-        }
         if (motionPad && motionPad != c) {   /* one motion feed only: two controllers would be mixed into one fusion */
             motionPad.motion.valueChangedHandler = nil;
             /* A controller that needed manual activation keeps its sensors powered until told otherwise. */
             if (motionPad.motion.sensorsRequireManualActivation) motionPad.motion.sensorsActive = NO;
             runtime_motion_live(0);
+        }
+        if ([c.productCategory isEqualToString:@"DualShock 4"]) {   /* its GCMotion yields 0 samples: read its HID IMU instead */
+            if (hid_imu_start(c)) return;   /* the v1 Bluetooth profile; v2 or USB has no matching profile and keeps GCMotion below */
+        } else if (!m || !m.hasRotationRate) {
+            if ([c.productCategory containsString:@"Joy-Con"]) {   /* PR #889: a paired Joy-Con's right HID sensor */
+                hid_motion_stop(); zeroSince = 0; motionSeen = hidAsked = NO;
+                motionPad = c; hid_motion_start();
+            } else if (!hid_imu_start(c)) fprintf(stderr, "[gyro] %s has no gyro: no motion from it\n", name);   /* PR #309: IMU in its HID reports (8BitDo Ultimate 2) */
+            return;
         }
         if (m.sensorsRequireManualActivation) m.sensorsActive = YES;
         hid_motion_stop(); zeroSince = 0; motionSeen = hidAsked = NO; runtime_motion_deadzone_default(0);
