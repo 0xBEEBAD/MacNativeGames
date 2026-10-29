@@ -14,7 +14,7 @@ keys and saves are never committed (see `.gitignore`).
 | 0 | Feasibility: does the game fit the by3 architecture? Code and data out of the dump, verified | done 2026-10-29 |
 | 1 | Code rewritten for Apple silicon; merged RomFS | done 2026-10-29 |
 | 2 | A runtime fork that boots to `nnMain` | done 2026-10-29 |
-| 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | in progress: the first crash is fully traced; the lldb watch probe (scripts/crash_probe.py) needs one API fix to finish the writer hunt |
+| 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | in progress: the first crash is fully traced; the lldb watch probe arms its watchpoint (scripts/crash_probe.py); its result reporting needs one more fix |
 | 4 | Playable: picture, audio (Wwise), input, saves; 30/60 fps and resolution patches | |
 | 5 | TotK-grade polish: app, presets, shader seed, shared shader list, MetalFX | |
 
@@ -227,3 +227,17 @@ This is the shape of the whole stage: by3's log records the same loop until `nvn
 
 Pitfalls: none new this round; the instrumentation added to `loader.c` during the boot fixes (read/short,
 key page, permission mismatch) is temporary and off by default in behaviour.
+
+### 2026-10-29: stage 3 session 2, the writer hunt is armed
+
+`scripts/crash_probe.py` now runs end to end up to the arm: it launches under lldb, waits for main's
+`seal`, reads the module base dynamically (0x10a648000 this run — confirmed unstable across runs), and
+arms an 8-byte write watchpoint on the crash field (`base+0xcc9cd98+0x28 = 0x117340dc0`,
+`WatchAddress(field, 8, False, True, err)` — this lldb takes booleans, not the enum constants, for
+read/write) and reports `valid=True err=success`. The session then ended before the stops were reported:
+`dump()` needs the same try/except + flush treatment the arm step got (an unhandled exception in a batch
+script ends the whole session silently). Next session: run it again, read `[watch#…]` / `[SEGV]` blocks,
+and the writer question answers itself.
+
+The same session also confirmed, independently of the earlier static scans, that the crash reproduces
+identically under lldb (`EXC_BAD_ACCESS code=1 address=0x8` at `ldr x24,[x10,#8]`, thread #7).
