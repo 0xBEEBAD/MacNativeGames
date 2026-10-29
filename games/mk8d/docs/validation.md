@@ -91,7 +91,22 @@ Later the same day, the app installed in `/Applications` (commit `62306a8`), eac
 
 Each of these printed the one `[nvn-mtl] [RED] texture ID … not registered` line and no other.
 
-Not checked: a Booster Course Pass race by hand, Coconut Mall to its end and a Grand Prix's final results, the other ten Booster cups' races, their courses in Time Trials, VS Race and battle.
+### By hand: a Booster Grand Prix in full screen
+
+By the player, 11:17–11:35, on the same MacBook Pro's built-in display: the app in `/Applications` started from its settings window (docked, full screen, English, rumble on), with a DualSense Wireless Controller, from the player's own save. The player chose a Booster Course Pass cup, played its whole Grand Prix and reported no problem. From the host log:
+
+| | |
+|---|---|
+| Start | `saves backed up to …/backups/20261029-111748`, the player's save of 2026-10-28 21:04; `aoc: reporting 1 add-on contents {1}`, `fs mount aoc:`; `display link: frame latency 2 (fullscreen)`; the DualSense player 1 with motion (gyro) and rumble |
+| Frames | 61,200 in about 17 minutes: **61,184 on screen, 33 dropped**; p99 over 16.7 ms in 3 of 204 300-frame windows (33.3, 100 and 33.3 ms) |
+| Memory | footprint 2.25–3.04 GB |
+| Audio | 0 underruns in 103 reports |
+| Saves | 11 commits; `userdata.dat` rewritten at 11:34, `save_device/` holds 9 files (5 before) |
+| Other | no focus change, the one known `[RED] texture ID … not registered` line, the host exited with 0 |
+
+This is the first race played by hand in this target's own app, and the first session in full screen played by hand in it.
+
+Not checked: Coconut Mall to its end in the scripted run, the other Booster cups by hand, their courses in Time Trials, VS Race and battle.
 
 ## Known limitations
 
@@ -99,7 +114,7 @@ Not checked: a Booster Course Pass race by hand, Coconut Mall to its end and a G
 - Only 4.0.1, and no add-on content but the Booster Course Pass `v65536`.
 - Online play and local wireless are unavailable by design.
 - One `[RED] texture ID … not registered` line per run, also upstream; its effect on the picture was not seen in the runs above.
-- Fullscreen on the built-in 120 Hz display (frame latency 2): the hand race in the upstream build dropped 32–40 of every 300 frames for part of the session. In the port's app the scripted race in full screen dropped 58 of 18,900, as many as in a window (68); full screen was not played by hand in the port.
+- Fullscreen on the built-in 120 Hz display (frame latency 2): the hand race in the upstream build dropped 32–40 of every 300 frames for part of the session. In the port's app the scripted race in full screen dropped 58 of 18,900, as many as in a window (68), and a whole Grand Prix played by hand in full screen dropped 33 of 61,200.
 - The app is ad-hoc signed. The first start of a newly built app waited about 90 s before anything ran (both apps, presumably macOS assessing the 13 GB bundle); later starts did not. Distribution and other Macs were not tested.
 
 Screenshots, saves, logs and translated shaders used here are not in Git: they contain or derive from game content.
