@@ -298,3 +298,38 @@ worker thread waits on a host core. Nobody writes `+0x194` through the object po
 window; the atomic clear at `0x3e41b0`/`0x3e4200` has no direct caller (a callback via the `0x3e4240`
 descriptor into `0x9deb90`). Next session: find the setter of `[0xdb84c8]+0x194` and what it waits for
 (live-attach lldb on the parked process worked well for this: read `modules[0].base`, break at the spin, sample).
+
+### 2026-10-29: stage 3 session 4, the park is an nn::os fiber that never resumes
+
+With `hwopus` answered, the boot gets through audio init and the game's main loop starts (input and
+vibration live), then parks. Live diagnosis (sample + lldb attach on the parked process; module bases are
+unstable across runs and two early frame attributions in this log were hex-conversion errors — always read
+`modules[0/1].base` from the probe and check every address against the module range):
+
+- The main thread spins at `main+0x3e415c` (`ldr w9, [x8, #0x194]; cbnz w9, self`), entered from
+  `main+0x3e4028` under state bits 28/29, waiting for `[0xdb84c8]+0x194` (a state object at
+  `main+0xdcbe30`, pointer-relocated at `0xdb84c8` — the only alias) to clear. At the park it holds 1, and
+  a 15 s write watch sees nobody touch it (`live_flag_probe.py`).
+- Every guest worker thread is parked in a normal guest wait. Nothing is deadlocked in the runtime's
+  virtual-core scheduler: the spin simply never yields its core, and the rest wait for events that never
+  come.
+- The field is the **async-phase flag of an `nn::os` fiber job system**. The chain, from a corrected
+  backtrace (`fiber_probe.py`, one headless boot, breakpoints on the whole path): the manager at
+  `[0xdcc2c0]` gets the pair `(waiter 0x3e4120, completion 0x3e41b0)` registered via
+  `0x9c6dd0/0x9c6e50` (the scheduler module around `0x9c5exx/0x9c6exx` — `nn::os` semaphores and
+  `GetCurrentFiber` wrappers), the job starts (`InitializeFiber` at `main+0x9c60b4`), the fiber is switched
+  to twice (`SwitchToFiber` → sdk's `FiberImplByHorizon` context switch at `sdk+0x5125c0`,
+  `CallFiberFunction` fires — the fiber body *starts*), and then nothing: no further switch, the phase job
+  (`0x3e4240`: `0x3c1500` → `0x40d1b0` — the shader-system init — → the registry remove-walk veneer
+  `0x9c1be0` → `0x9e3e80` → `0x6e5310`) never executes, the completion callback never runs, the flag stays
+  1, and `nnMain`'s wait spins forever.
+- The exact broken link is open: after the second `SwitchToFiber` (the yield at `main+0x9c5b74`) the pump
+  should be resumed with the phase job, and the resume never happens. Next session: find who is supposed to
+  hand the job back (a worker thread's semaphore wake that our host never signals, or a second fiber that
+  was never started), and check the first `CallFiberFunction` x0 — it read as `main+0xa0e4f0`, a PLT stub
+  (`AcquireReadLock`), which is either an argument-register mis-read or the real trampoline.
+
+Probes added this session: `spin_probe.py` (flag watch, headless), `live_flag_probe.py` (attach to the
+parked process, read + watch the flag), `encode_probe.py` (sdk encoder backtrace; the "Opus encode stall"
+it once showed was an artifact of the flag watchpoint's own overhead — the field is written often during
+normal init), `fiber_probe.py` (the ordered fiber/phase trace).
