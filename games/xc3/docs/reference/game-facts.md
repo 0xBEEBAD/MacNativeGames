@@ -7,7 +7,7 @@ Only numbers, names, sizes and hashes measured on the owner's dump. Never game c
 | | Title ID |
 |---|---|
 | Base game | `010074F013262000` |
-| Update | `010074F013262800` (expected; confirm in stage 8) |
+| Update | `010074F013262800` (confirmed with 2.2.1) |
 | DLC | `010074F013263xxx` (out of scope) |
 
 ## 1.0.0 (v0)
@@ -76,3 +76,18 @@ Measured 2026-10-28: `DM_RULESET=native DM_PRIVATE_GATES=0`, no cuts and no obse
 - Threads soon after `nnMain`: 39 `CreateThread`.
 - Swap chain: 2 images, 1920×1080, format 0x25, interval 1.
 - NVN names loaded / implemented: see [nvn-coverage.md](nvn-coverage.md).
+
+## 2.2.1 (v720896)
+Measured 2026-10-29 from the owner's update NSP (`Patch`, version 720896 = 0xB0000; the display version 2.2.1 is read from its `control.nacp`, not the file name).
+
+| Entry | Size |
+|---|---|
+| `fd6baab822ac7180838dfb09783e61b9.nca` | 598,929,920 bytes at offset 1,146,647: Program (full ExeFS + BKTR RomFS patch) |
+| `d0517148fff72b2fd3ec73e334215b91.nca` | Control: display version 2.2.1, same languages, user save 20 MiB (1.0.0: 10 MiB), journal 10 MiB |
+| `abcce21dcf308a4c575e595cb44f8939.nca` | LegalInformation |
+| `df432498aea49529524a1e87261c4ab4.cnmt.nca` | meta |
+
+- **Code:** only `main` (13,506,612 bytes NSO, build ID `82D187FE9EF9BE921B8E1B1CDDF7BD287CDB22C1`) and `main.npdm` change. `sdk`, `subsdk0` and `rtld` are byte-identical to 1.0.0, and so are their rewritten images.
+- **Rewrite:** `main` has 5,065 sites (1.0.0: 4,944); `structck` OK, `equiv --min-eff 8` 0 divergent sites, 300 of 300 mutations caught.
+- **RomFS:** BKTR merge with the base: 15,194,654,528 bytes, 250 files (4 more than 1.0.0), SHA-256 `5c2491c6…10eb6`; 576,084,880 bytes come from the update. All six IVFC levels verified (927,409 level-6 blocks).
+- **New SDK call:** `nn::oe::GetDisplayVersion` at start (see `services.md`).

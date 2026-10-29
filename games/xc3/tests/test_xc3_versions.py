@@ -34,6 +34,16 @@ class ManifestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             versions.expected("v999")
 
+    def test_v221_is_an_update_of_the_same_base(self):
+        v100, v221 = versions.expected("v100"), versions.expected("v221")
+        self.assertEqual(v221["display_version"], "2.2.1")
+        self.assertEqual(v221["base_program_nca"], v100["base_program_nca"])
+        self.assertEqual(v221["update_title_id"], "010074F013262800")
+        # The SDK modules did not change in 2.2.1; main did.
+        for name in ("sdk", "subsdk0", "rtld"):
+            self.assertEqual(v221["exefs_sha256"][name], v100["exefs_sha256"][name])
+        self.assertNotEqual(v221["exefs_sha256"]["main"], v100["exefs_sha256"]["main"])
+
 
 class IdentifyTests(unittest.TestCase):
     def test_base_program_nca_by_name_and_size(self):
@@ -43,6 +53,15 @@ class IdentifyTests(unittest.TestCase):
             versions.identify_base({"name": nca["name"], "size": nca["size"] + 1})
         with self.assertRaises(ValueError):
             versions.identify_update({"name": nca["name"], "size": nca["size"]})
+
+    def test_update_program_nca_by_name_and_size(self):
+        nca = versions.expected("v221")["update_program_nca"]
+        self.assertEqual(versions.identify_update({"name": nca["name"], "size": nca["size"]}), "v221")
+        with self.assertRaises(ValueError):
+            versions.identify_update({"name": nca["name"], "size": nca["size"] - 1})
+        # The base NCA alone still means 1.0.0, never the update that shares it.
+        base = versions.expected("v221")["base_program_nca"]
+        self.assertEqual(versions.identify_base({"name": base["name"], "size": base["size"]}), "v100")
 
     def test_exefs_that_differs_in_one_file_stops(self):
         # Stand-in files whose hashes are patched into a copy of the manifest: the check itself is what is tested.

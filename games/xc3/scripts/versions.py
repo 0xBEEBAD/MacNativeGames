@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
-FILES = {'v100': 'expected-v1.0.0.json'}
+FILES = {'v100': 'expected-v1.0.0.json', 'v221': 'expected-v2.2.1.json'}
 # A version is supported once its manifest (assets/expected-<version>.json) is written; until then none is.
 VERSIONS = {version: json.loads((HERE / 'assets' / name).read_text()) for version, name in FILES.items() if (HERE / 'assets' / name).exists()}
 

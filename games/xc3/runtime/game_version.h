@@ -9,6 +9,9 @@
 #if defined(XC3_GAME_V100)
 #define TOTK_GAME_VERSION "1.0.0"
 #define TOTK_GAME_DIR "v100"
+#elif defined(XC3_GAME_V221)
+#define TOTK_GAME_VERSION "2.2.1"
+#define TOTK_GAME_DIR "v221"
 #else
-#error "build with -DXC3_GAME_V100 (the Makefile's VERSION)"
+#error "build with -DXC3_GAME_V100 or -DXC3_GAME_V221 (the Makefile's VERSION)"
 #endif
