@@ -10,6 +10,24 @@ A copy of `games/ot0` at upstream commit `5ab07b7` (2026-10-28); see [third_part
 
 ## Log
 
+### 2026-10-29: stage 8, 2.2.1
+
+Version 2.2.1 is built from the base NSP plus the owner's update NSP, side by side with 1.0.0 in one work folder (`VERSION=v221`).
+- **Identification by content:** `extract_code.py` finds 2.2.1 by its ExeFS hashes and `merge_romfs.py` by its update Program NCA, both pinned in `assets/expected-v2.2.1.json`. The display version was read from the update's `control.nacp`.
+- **Code:** only `main` changed. `sdk` and `subsdk0` are identical to 1.0.0, and their rewritten images came out byte-identical too.
+- **One host change:** 2.2.1 calls `nn::oe::GetDisplayVersion` while starting. The SDK reads it through an applet proxy the host does not serve, so the game crashed at address 0. The host now answers with the build's version.
+- **DLC menu:** "Purchase" calls `nn::ec::ShowShopAddOnContentList`, which opens the eShop applet. The SDK crashed there, since the host runs no applets. The shop now opens and closes at once, and the game reports no add-on content as before (seen in play, PR #1309).
+- **Saves:** 2.2.1 opens a 1.0.0 save. Its save is 20 MiB instead of 10 MiB, and a save written by 2.2.1 may not load in 1.0.0.
+
+Verified (Apple M5, macOS 27.0.1, 2.2.1, a copy of the 1.0.0 save):
+
+| Check | Result |
+|---|---|
+| ExeFS, update Program NCA, merged RomFS (all six IVFC levels) | pass, pinned |
+| `structck.py`, `equiv.py --min-eff 8` | OK for all three modules; 0 divergent sites; 300 of 300 mutations caught |
+| Boot with A presses | title screen "Ver. 2.2.1", Continue loads the 1.0.0 save, a battle in Everblight Plain renders; 230 s with no crash |
+| Played by hand | works (owner); "Purchase" in the DLC menu crashed the game, and after the fix it returns to the menu |
+
 ### 2026-10-29: stage 7, the app
 
 `make app` builds `Xenoblade Chronicles 3.app` from the work folder, with the launcher copied from ot0. Changes for this game:

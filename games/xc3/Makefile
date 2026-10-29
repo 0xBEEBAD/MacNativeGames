@@ -6,11 +6,11 @@
 #   make prepare   # scripts/prepare_runtime.py: tables, RomFS index, fonts config
 #   make runtime   # XC3_build/build/xc3-native-<version>
 #   make boot      # run it from the work folder (cwd: extracted/ and rewritten/ are read relative to it)
-# VERSION picks the game version (v100); by default the newest one extracted in the work folder.
+# VERSION picks the game version (v100 or v221); by default the newest one extracted in the work folder.
 
 WORK ?= XC3_build
 OUT := $(WORK)/build
-VERSIONS := v100
+VERSIONS := v100 v221
 VERSION ?= $(or $(lastword $(sort $(filter $(VERSIONS),$(notdir $(wildcard $(WORK)/extracted/v*))))),v100)
 ifeq ($(filter $(VERSION),$(VERSIONS)),)
 $(error VERSION=$(VERSION) is not one of $(VERSIONS))

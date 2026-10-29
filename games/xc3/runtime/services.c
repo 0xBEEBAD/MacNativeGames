@@ -259,6 +259,9 @@ static int handheld_mode(void) {static int v=-1;if(v<0){const char *e=getenv("TO
 int runtime_handheld_mode(void){return handheld_mode();}   /* runtime/input.c: the pad is the handheld controller then */
 static int operation_mode(void) {return handheld_mode()?0:1;}
 static int performance_mode(void) {return handheld_mode()?0:1;}
+/* nn::oe::GetDisplayVersion: control.nacp's DisplayVersion (char[16]) through IApplicationFunctions, which the host does
+   not serve, so the SDK read a null proxy. 2.2.1 asks for it while starting; 1.0.0 never did. */
+static void display_version(char *out) {if(!out)runtime_fail("display version output pointer");memset(out,0,16);snprintf(out,16,"%s",TOTK_GAME_VERSION);}
 static int focus_policy;
 static void focus_mode(int mode) {if(mode<0||mode>3)runtime_fail("unknown focus handling mode");focus_policy=mode;runtime_startup_checkpoint((uintptr_t)__builtin_return_address(0));fprintf(stderr,"[totk] focus policy stored: %d (window lifecycle pending)\n",focus_policy);}
 static int focus_state(void) {return runtime_front_focus();}
@@ -332,6 +335,7 @@ void *runtime_observer(const char *name) {
 void *runtime_override(const char *name) {
  static const struct {const char *name;void *fn;} entries[]={
   {"_ZN2nn2oe18GetDesiredLanguageEv",runtime_desired_language},
+  {"_ZN2nn2oe17GetDisplayVersionEPNS0_14DisplayVersionE",display_version},
   {"_ZN2nn2oe27SetPerformanceConfigurationENS0_15PerformanceModeEi",performance_config},
   {"_ZN2nn2oe15SetCpuBoostModeENS0_12CpuBoostModeE",cpu_boost},{"_ZN2nn2oe16GetOperationModeEv",operation_mode},{"_ZN2nn2oe18GetPerformanceModeEv",performance_mode},
   {"_ZN2nn2oe20SetFocusHandlingModeENS0_17FocusHandlingModeE",focus_mode},{"_ZN2nn2oe20GetCurrentFocusStateEv",focus_state},
