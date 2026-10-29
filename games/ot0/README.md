@@ -20,7 +20,7 @@ Tested on one Mac: Apple M5 Max, 64 GB, macOS 27.
 | Battles | 1.0.4: many battles played on the Mac, including Ultimate Techniques, whose rendering problems were found and fixed this way ([CHANGELOG.md](CHANGELOG.md)) |
 | Frame rate | up to 120 fps (the Switch version is held to 30); 8.3 ms per frame in the first town on a 120 Hz display |
 | 1.0.3 | played on the Mac (27 October 2026): to Atlas Dam, with a few battles just outside it |
-| 1.0.5 | started on the Mac (28 October 2026): title screen, main menu and the world map from a save, at 120 fps; a RomFS mod (PlayStation button icons) loads unchanged from 1.0.4 |
+| 1.0.5 | started on the Mac (28 October 2026): title screen, main menu and the world map from a save, at 120 fps |
 | App | `scripts/build_ot0.py` (or `make app`) builds a self-contained `Octopath Traveler 0.app`: a settings window (frame rate, monitor, window or full screen, size, output resolution, MetalFX, HUD), then the game |
 
 Known gaps: a shader the game uses for the first time is built in the background and the objects that need it appear a moment late; draws into smaller targets (shadows, lookup tables) still wait for it, a pause of up to about 150 ms the first time. Each shader is built once; later sessions load it from the cache.
