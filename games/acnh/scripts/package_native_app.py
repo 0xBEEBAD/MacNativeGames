@@ -2,7 +2,7 @@
 """Package Animal Crossing: New Horizons into a self-contained macOS application bundle.
 
 The bundle carries the native runtime, shader tools, rewritten modules, RomFS,
-shared fonts, precompiled Metal shader libraries, and launcher.
+shared fonts, precompiled Metal shader libraries, the shader seed (when prepared), and launcher.
 """
 import argparse
 import hashlib
@@ -172,6 +172,24 @@ def verify_inputs(work: Path, prepared: Path, fonts: Path):
                 count += 1
         verified["shader_libs_count"] = count
 
+    # 7. The shader seed (tools/prepare_shader_seed.py), when prepared: the game's own shaders, translated, for the
+    # runtime to import and warm before play. It must come from this RomFS and this runtime's translation chain, and every
+    # file must be the one its manifest names (the runtime checks them again at its first start).
+    seed = work / "build/shader-seed"
+    if (seed / "seed-manifest.json").is_file():
+        manifest = json.loads((seed / "seed-manifest.json").read_text())
+        chain = re.search(r'#define DMSH_CHAIN "([^"]+)"', (GAME / "third_party/d2r_gfx/gfx/nvn/dmsh_chain.h").read_text()).group(1)
+        romfs_sha256 = json.loads((prepared / "update/romfs/index.json").read_text())["romfs_sha256"]
+        if manifest.get("chain") != chain or manifest.get("source_romfs_sha256") != romfs_sha256 or not manifest.get("files"):
+            raise ValueError(f"Shader seed {seed} was prepared for other inputs; prepare it again")
+        for name, digest in manifest["files"].items():
+            if "/" in name or identity(seed / name)["sha256"] != digest:
+                raise ValueError(f"Shader seed file {name} does not match its manifest")
+        verified["shader_seed"] = {"shaders": manifest["shaders"], "files": len(manifest["files"]),
+                                   "manifest_sha256": identity(seed / "seed-manifest.json")["sha256"]}
+    else:
+        print(f"No shader seed in {seed}: the game translates shaders while playing (tools/prepare_shader_seed.py)")
+
     return expected, verified, rows
 
 
@@ -264,6 +282,15 @@ def package(work: Path, prepared: Path, fonts: Path, output: Path, icon: Path = 
                 clone(compiler_txt, target_libs / "compiler.txt")
             os.symlink("../Resources/game/build/shader-libs", macos / "shader-libs")
 
+        # 6b. Bundle the shader seed: imported from Resources/game/build/shader-seed (totk_shader_rt.m root_dir), its
+        # warm-up list read from Contents/MacOS/shader-seed (nvn_mtl.m warm_start, beside shader-map.tsv).
+        if "shader_seed" in verified:
+            seed = work / "build/shader-seed"
+            (game / "build").mkdir(parents=True, exist_ok=True)
+            subprocess.run(["/bin/cp", "-cR", str(seed), str(game / "build/shader-seed")], check=True)   # one APFS clone of the folder
+            os.symlink("../Resources/game/build/shader-seed", macos / "shader-seed")
+            print(f"Bundled the shader seed: {verified['shader_seed']['shaders']} shaders, {verified['shader_seed']['files']} files")
+
         # 7. Bundle licenses
         notices = resources / "Licenses"
         notices.mkdir(parents=True, exist_ok=True)
@@ -335,6 +362,13 @@ def package(work: Path, prepared: Path, fonts: Path, output: Path, icon: Path = 
         cache_local = work / "build/shader-cache/rt-totk-native-v4-unverified"
         seed_data(app_data_dir, user_data_local, cache_local)
 
+        # Finder and the Dock keep the icon they cached for this path (user 2026-10-29: the app showed the old, blank
+        # icon in Finder while the running app's was right): a new modification date and Launch Services registration
+        # make them read the new bundle's.
+        os.utime(output)
+        lsregister = Path("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
+        if lsregister.is_file():
+            subprocess.run([str(lsregister), "-f", str(output)], check=False)
         print(f"Successfully packaged and verified: {output}")
 
     except BaseException:

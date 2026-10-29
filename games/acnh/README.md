@@ -46,11 +46,26 @@ headers and graphics object files. Repackage to update the actual app:
 MACOSX_DEPLOYMENT_TARGET=27.0 build/acnh-3.0.1/work/venv/bin/python games/acnh/build_host.py \
   --prepared build/acnh-3.0.1/work/prepared \
   --work build/acnh-3.0.1/work/native --shared-fonts game-assets/shared/fonts
+build/acnh-3.0.1/work/venv/bin/python games/acnh/tools/extract_app_icon.py \
+  game-assets/animal-crossing-new-horizons/updates/v3.0.1/acnh-update-v3.0.1-01006f8002326800.nsp \
+  --keys game-assets/shared/keys/prod.keys --prepared build/acnh-3.0.1/work/prepared \
+  --output build/acnh-3.0.1/work/native/build/AppIcon.icns
+build/acnh-3.0.1/work/venv/bin/python games/acnh/tools/prepare_shader_seed.py \
+  --prepared build/acnh-3.0.1/work/prepared \
+  --translator build/acnh-3.0.1/work/native/build/shader-service/totk_xlate \
+  --output build/acnh-3.0.1/work/native/build/shader-seed
 MACOSX_DEPLOYMENT_TARGET=27.0 build/acnh-3.0.1/work/venv/bin/python games/acnh/scripts/package_native_app.py \
   --prepared build/acnh-3.0.1/work/prepared --work build/acnh-3.0.1/work/native \
   --shared-fonts game-assets/shared/fonts \
   --output "build/acnh-3.0.1/Animal Crossing New Horizons.app"
 ```
+
+The icon step makes the app icon from the update's own title icon (its Control data, checked as `prepare.py` checks
+it); the packager bundles `<native work>/build/AppIcon.icns`, and without it the app has no icon. The shader seed step translates every shader the game's files carry (3.0.1: 6,470, plus 1,455 shadow-map variants;
+about 35 s and 450 MB) and is reused while its inputs stay the same. The packager bundles it; the app imports it into
+its shader cache at the first start and compiles it during the start-up warm-up, so a scene met for the first time no
+longer stops the game to translate and compile its shaders (the cause of the frame drops measured on 2026-10-29).
+Without the step the app still works and translates shaders while playing.
 
 The 3.0.1 host targets NVN 55.15 and never installs the 1.2.1 game-address
 patches. It uses a separate version data folder and does not import old saves.
@@ -117,6 +132,46 @@ The packager validates all executable identities, rewrites, RomFS integrity, sha
 "apps/Animal Crossing New Horizons.app/Contents/MacOS/Animal Crossing"
 ```
 Interactive automation and tests can deliver commands via `apps/Animal Crossing Data/commands.txt`. Save states are automatically versioned and backed up under `apps/Animal Crossing Data/backups/`.
+
+### 6. Controls and the settings panel
+The default keyboard and mouse layout keeps the left hand on the keyboard. The mouse only clicks: Animal Crossing has
+nothing to aim and no camera to turn with it.
+
+| Action | Switch | Keys | Mouse |
+|---|---|---|---|
+| Move | left stick | W A S D | |
+| Camera | right stick | arrow keys | |
+| Talk, use the tool, confirm | A | Space | left button |
+| Cancel; hold to run | B | Shift, Esc | |
+| Pockets | X | Tab, I | |
+| Pick up | Y | E | right button |
+| NookPhone | ZL | Q | |
+| Reactions | ZR | R | |
+| L button | L | Z | |
+| R button | R | C | |
+| Left stick press | L3 | Control | |
+| Right stick press | R3 | V | |
+| + button | + | M, Return | |
+| − button | − | Backspace | |
+| Tool ring | d-pad up | 3 | wheel click |
+| Put the tool away | d-pad down | 5 | |
+| D-pad left | d-pad left | 2 | side button 4 |
+| D-pad right | d-pad right | 4 | side button 5 |
+
+Key 1, or L3 + R3 together on a controller, opens the settings panel; Esc or key 1 closes it. It has three pages:
+
+- **Display:** the overlay (FPS, shaders and load; FPS only; off), an FPS graph, the frame rate (30 fps, the game's
+  own; there is no lock to pick because the game cannot run faster), MetalFX frame interpolation (shown as not
+  available: its hooks do not find this game's scene, depth, camera and UI yet), the picture (1080p, or 1080p with MetalFX upscaling for a larger window or full screen) and the game language
+  (follow the Mac or one of the game's 14 languages; it applies at the next launch).
+- **Input:** the controller type (auto, Xbox, PlayStation, Switch) and rumble.
+- **Key bindings:** drawings of the keyboard and mouse and of the controller. Click a key or button and pick what it
+  does; a list view is also available. Each device has its own reset button.
+
+The choices are saved next to the app in `Animal Crossing Data` (`controls.txt`, `keyboard.txt` and one small file per
+setting). Scripted input (`commands.txt`, `TOTK_INPUT_SCRIPT`) keeps the fixed test layout, so scripts mean the same keys
+whatever the player picks. `TOTK_LANG`, `TOTK_MFX_UPSCALE` / `TOTK_MFX_OUTPUT` and `TOTK_RUMBLE` decide
+before the panel's choices; the panel then shows their value greyed out.
 
 The small offline tools are adapted from Tyraelone's common tools at
 `2f00936366640ce6a7aa84536a66a96a4747f927`; provenance and MIT licensing are
