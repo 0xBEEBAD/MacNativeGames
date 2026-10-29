@@ -43,6 +43,7 @@ How it works: bring your game file (XCI or NSP) and your `prod.keys`; one script
 | Octopath Traveler 0 | 1.0.3, 1.0.4 | Mac | Community port, work in progress | [`games/ot0`](games/ot0/README.md) |
 | Hyrule Warriors: Age of Calamity | 1.3.0 | Mac | Community port, experimental | [`games/aoc`](games/aoc/README.md) |
 | Mario Kart 8 Deluxe | 4.0.1 | Mac | Community port, early | [`games/mk8d`](games/mk8d/README.md) |
+| Astral Chain | 1.0.1 | Mac | Community port, work in progress; the first frame is presented and the title flow runs | [`games/alc`](games/alc/README.md) |
 
 Community ports keep their own runtime, graphics layer and scripts in their folder and are built with the steps there.
 
