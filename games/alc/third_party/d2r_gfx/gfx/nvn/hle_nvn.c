@@ -152,6 +152,12 @@ NVN(nvnDeviceGetProcAddress, PFNNVNGENERICFUNCPTRPROC, const NVNdevice *d, const
 static const int g_devinfo[] = {
 #ifdef GAME_BOTW
     [0x00] = 53, [0x01] = 311,  // Breath of the Wild 1.6.0 main+0xe55304 requires major 53, minor >= 311 (botw.md).
+#elif defined(GAME_ALC)
+    // Astral Chain 1.0.1 (SDK 1.2.11, NVN ABI 53): main+0x9f2850 requires major == 53 and main+0x9f285c requires
+    // minor >= 0x136 (310) — the check runs inside the device init at main+0x9f2780; a mismatch fails the whole
+    // shader-system init (main+0x40d5a0) and the game's registry walker then crashes on the never-constructed
+    // listener registry. 311 is the Tegra X1 minor paired with major 53 (SMO/BotW measurements).
+    [0x00] = 53, [0x01] = 311,
 #else
     [0x00] = 55, [0x01] = 15,   // Experimental ABI target: TOTK main+e9d614 requires major 55, minor >= 15. Unsupported functions stop.
 #endif

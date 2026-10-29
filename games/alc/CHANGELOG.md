@@ -14,7 +14,7 @@ keys and saves are never committed (see `.gitignore`).
 | 0 | Feasibility: does the game fit the by3 architecture? Code and data out of the dump, verified | done 2026-10-29 |
 | 1 | Code rewritten for Apple silicon; merged RomFS | done 2026-10-29 |
 | 2 | A runtime fork that boots to `nnMain` | done 2026-10-29 |
-| 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | in progress: the first crash is fully traced; the lldb watch probe arms its watchpoint (scripts/crash_probe.py); its result reporting needs one more fix |
+| 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | in progress: the registry-walker SEGV turned out to be a symptom; the NVN ABI version gate (GAME_ALC 53/311) and the `hwopus` service are in, the whole `nnMain` init chain passes, and the game's main loop runs — it parks in a spin at `main+0x3e415c` waiting on `[0xdb84c8]+0x194`, which is the next hunt |
 | 4 | Playable: picture, audio (Wwise), input, saves; 30/60 fps and resolution patches | |
 | 5 | TotK-grade polish: app, presets, shader seed, shared shader list, MetalFX | |
 
@@ -241,3 +241,60 @@ and the writer question answers itself.
 
 The same session also confirmed, independently of the earlier static scans, that the crash reproduces
 identically under lldb (`EXC_BAD_ACCESS code=1 address=0x8` at `ldr x24,[x10,#8]`, thread #7).
+
+### 2026-10-29: stage 3 session 3, the walker SEGV was a symptom; NVN ABI and `hwopus` fixed
+
+**The watched field is never written by anyone.** `crash_probe.py` (reworked: the registry object is read
+dynamically through the relocated pointer at `base+0xdc2690` — the earlier session's `0xcc9cd98` addend
+reading was a misread; the `.rela.dyn` addend is `0xccb6298`, which the loader had applied correctly) armed
+write watchpoints on the object's first field and on field `+0x28` and both stayed silent from `seal` to the
+SIGSEGV, three boots in a row. Static scans agree: no instruction in main's text stores to those fields
+through any path (53 loads of `[0xdc2690]`, 74 loads of the neighbouring slot table, adrp+add materializations
+— checked with a register-taint walk over `/tmp/main.dis`-style full disassembly).
+
+So the hunt changed shape: find what *should* have constructed the registry, and why it never ran. A chain of
+lldb probes (all in `scripts/`, one guarded round-loop each — this lldb also ignores `SetCondition` on
+one-shot breakpoints, so every hit is logged and filtered in Python; an unguarded script dies silently at the
+first exception and takes the batch with it):
+
+- `publish_probe.py` proved the registry's publisher (`nnMain` at `main+0x3e3794` → `0x9c1a80` init of a stack
+  temporary → `0x9c1ab0` publish → `0x9c0a10` insert) never ran: the big init that contains it bails at the
+  guarded call `main+0x3e3748` → `bl 0x40d5a0`, and the `0x3e3440` wrapper then falls *unconditionally* into
+  the `0x3e3af0` chain whose `bl 0x9c1bd0` veneer is the walker — the SEGV's exact shape (by3's stage-3
+  lesson, learned again: a null dereference in a later path is a symptom of an earlier failed init).
+- `fail_probe.py` walked `0x40d5a0`'s ~50 guarded calls: the first one fails (`bl 0x40dfd0`, the NVN window
+  and shader-system init, args 1600×900).
+- `trace_probe.py` gave the whole flow in one boot: `0x40dfd0` builds the descriptor, `0x40f8e0` builds the
+  swap-chain list successfully, then `bl 0x9dea90` (NVN device init through the table at `[0xdc2b48]`) fails.
+- `cond_probe.py` walked `0x9da600`'s checks and then `0x9da920`'s: descriptor checks pass, both allocations
+  succeed, the three `nn::vi` calls return success (`OpenDefaultDisplay`/`CreateLayer` write the `0x11`/`0x21`
+  markers into the out parameters and return 0 — the overrides were correct), and the failure is `bl 0x9f2780`.
+- Inside `0x9f2780`: `nvnBootstrapLoader("nvnDeviceGetProcAddress")` works, the driver table resolves, and the
+  failure is the version gate at `main+0x9f2850`: `nvnDeviceGetInteger(0)` must equal `0x35` (53) and
+  `(1)` must be ≥ `0x136` (310). The layer answered TotK's 55/15.
+
+**Fix: GAME_ALC.** The layer's device-info table now has a `GAME_ALC` branch with `53, 311` (311 ≥ 310; the
+Tegra X1 pairing measured on SMO/BotW), `-DGAME_ALC` in the Makefile's `GFX_FLAGS`. BotW's separate
+`rt_dup_slot` rendering workaround in `nvn_obj.h` stays out of this build.
+
+**Verified:** device init passes (`WindowInitialize`, swap-chain 3×1600×900), the whole `nnMain` init chain
+runs to its end — registry published, walker passes, audio init starts — and the game's main loop is alive
+(it reads input and sends a vibration value). The earlier `hwopus` wall is next.
+
+**`hwopus` (the Switch's hardware Opus decode).** Wwise's stream decode goes through
+`nn::codec::HardwareOpusDecoderManager`: `GetHardwareOpusDecoderWorkBufferSize(rate, channels)` connects to
+`hwopus` per rate (the size queries are cached in a static table). The by3-era `nn::codec` overrides cannot
+intercept here — main imports only the `HardwareOpusDecoder` constructor, and the manager path runs inside
+the sdk module behind a virtual call. So the service itself is implemented (`runtime/hwopus.c`, libopus
+already linked): command 1 is the work-buffer size query (raw `{rate u32, channels u32}` → `u32`), answered
+for all five rates; command 0 (open, work buffer as a move handle) is implemented per the client's argument
+shape and will be exercised once the boot gets further; unknown commands dump their raw payload and stop the
+runtime loudly.
+
+**Where it stands:** the boot parks with the main thread spinning at `main+0x3e415c` (`ldr w9, [x8, #0x194];
+cbnz w9, self` — nnMain region, entered from `0x3e4028` under state bits 28/29 of a status word, i.e. a
+conditional "wait for in-flight operation" path around the `[0xdb84c8]` state object) while every guest
+worker thread waits on a host core. Nobody writes `+0x194` through the object pointer within any scan
+window; the atomic clear at `0x3e41b0`/`0x3e4200` has no direct caller (a callback via the `0x3e4240`
+descriptor into `0x9deb90`). Next session: find the setter of `[0xdb84c8]+0x194` and what it waits for
+(live-attach lldb on the parked process worked well for this: read `modules[0].base`, break at the spin, sample).
