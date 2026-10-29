@@ -13313,6 +13313,23 @@ static int texels_gpu_region(const tex_t *t,unsigned level,unsigned layer0,const
     atomic_fetch_add(to_linear?&g_texels_gpu_reads:&g_texels_gpu_writes,1);atomic_fetch_add(&g_texels_gpu_bytes,total);
     return 1;
 } }
+/* TOTK (2026-10-29): ReadTexels and WriteTexels unpack and pack a mirrored texture's guest memory on the game's thread,
+   unguarded until now: a fault there ended the process with SIGBUS (ReadTexels, 1.2.1; that texture's storage was 4 GiB
+   below its pool, see game_patches.c patch_pool_offset). A fault now returns -2 and the call is skipped: a read gives
+   zeros, a write leaves the memory as it was. The write tracking resolves its own read-only pages first (loader.c), so
+   only a page that is really gone ends up here. */
+static int texels_unpack_guarded(const nvn_texdesc *d, unsigned level, unsigned layer, const void *mem, void *lin, size_t lp, const char *what) {
+    sigjmp_buf jb, *prev = runtime_fault_guard;
+    if (sigsetjmp(jb, 1)) { runtime_fault_guard = prev; guarded_read_fault(what, mem, lp); return -2; }
+    runtime_fault_guard = &jb; int rc = nvn_deswizzle(d, level, layer, mem, lin, lp); runtime_fault_guard = prev;
+    return rc;
+}
+static int texels_pack_guarded(const nvn_texdesc *d, unsigned level, unsigned layer, const void *lin, size_t lp, void *mem, const char *what) {
+    sigjmp_buf jb, *prev = runtime_fault_guard;
+    if (sigsetjmp(jb, 1)) { runtime_fault_guard = prev; guarded_read_fault(what, mem, lp); return -2; }
+    runtime_fault_guard = &jb; int rc = nvn_swizzle(d, level, layer, lin, lp, mem); runtime_fault_guard = prev;
+    return rc;
+}
 void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNcopyRegion *r, uint8_t *dst, size_t row, size_t img) {
     xv_check(t->serial, level, layer0, "CPU读回");
     PD("U cpu_read ser=%llu lv%u sl%u xyz=%d,%d,%d size=%d,%d,%d dst=%p row=%lu img=%lu", t->serial, level, layer0, r->xoffset, r->yoffset, r->zoffset, r->width, r->height, r->depth, dst, (unsigned long)row, (unsigned long)img);
@@ -13334,7 +13351,9 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
         uint8_t *lin = malloc(lp * lr * lz);
         for (int z = 0; z < nz; z++) {
             unsigned layer = is3d ? 0 : layer0 + r->zoffset + z;
-            if ((is3d && z == 0) || !is3d) if (nvn_deswizzle(&t->d, level, layer, t->mem, lin, lp)) { RED_ONCE(32, "ReadTexels 解排布失败"); free(lin); return; }
+            int rc = (is3d && z) ? 0 : texels_unpack_guarded(&t->d, level, layer, t->mem, lin, lp, "ReadTexels 解排布");
+            if (rc == -2) { for (int zz = 0; zz < nz; zz++) for (size_t y = 0; y < hb; y++) memset(dst + zz * img + y * row, 0, wb); free(lin); return; }
+            if (rc) { RED_ONCE(32, "ReadTexels 解排布失败"); free(lin); return; }
             const uint8_t *src = lin + (is3d ? (size_t)(r->zoffset + z) * lp * lr : 0);
             for (size_t y = 0; y < hb; y++) memcpy(dst + z * img + y * row, src + (y0 + y) * lp + x0, wb);
         }
@@ -13372,10 +13391,14 @@ void mtl_write_texels(const tex_t *t, unsigned level, unsigned layer0, const NVN
             if (!lin) die("WriteTexels: out of memory");
             for (int z = 0; z < nz; z++) {
                 unsigned layer = is3d ? 0 : layer0 + r->zoffset + z;
-                if ((is3d && z == 0) || !is3d) if (nvn_deswizzle(&t->d, level, layer, t->mem, lin, lp)) die("WriteTexels: unsupported layout");
+                int rc = (is3d && z) ? 0 : texels_unpack_guarded(&t->d, level, layer, t->mem, lin, lp, "WriteTexels 解排布");
+                if (rc == -2) break;
+                if (rc) die("WriteTexels: unsupported layout");
                 uint8_t *dst = lin + (is3d ? (size_t)(r->zoffset + z) * lp * lr : 0);
                 for (size_t y = 0; y < hb; y++) memcpy(dst + (y0 + y) * lp + x0, src + z * img + y * row, wb);
-                if (!is3d || z == nz - 1) if (nvn_swizzle(&t->d, level, layer, lin, lp, t->mem)) die("WriteTexels: unsupported layout");
+                rc = (!is3d || z == nz - 1) ? texels_pack_guarded(&t->d, level, layer, lin, lp, t->mem, "WriteTexels 写回排布") : 0;
+                if (rc == -2) break;
+                if (rc) die("WriteTexels: unsupported layout");
             }
             free(lin);
         }
