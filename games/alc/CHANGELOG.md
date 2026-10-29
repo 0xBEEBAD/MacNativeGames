@@ -369,3 +369,33 @@ prebuilt `totk_xlate` in place (`make shader-tools`, SHA-256 checked) the runtim
 goal — from `nnMain` to the first `nvnQueuePresentTexture` — is met; stage 4 (playable: audio heard, input,
 saves; the 30/60 fps and resolution patches) starts from a game that already draws, drives its own frame
 pacing, and talks to the audio services.
+
+### 2026-10-29: stage 4 begins — the character-select crash was the missing pl:u shared-font service
+
+The user played the live window through the title into the character select and the game died there —
+exit code 1, and the log's tail held the answer: `sm: service "pl:u" not implemented`, callers
+`sdk+0x32a3d4` = `nn::pl::RequestSharedFontLoad` then `nn::pl::GetSharedFont` (the character-select UI is
+where the game first loads the system shared fonts to draw the names). The older SDK drives `pl:u` over
+IPC; the name overrides in `shared_font.c` cover only the three non-IPC wrappers the boot path never used.
+
+What went in:
+
+- The six system fonts (standard, Chinese simplified + extension, Chinese traditional, Korean, Nintendo
+  extension) copied from this machine's own by3 extraction into
+  `AC_build/extracted/firmware/shared-fonts` and `make prepare` regenerating the verified rows — they had
+  never been extracted in this tree (the config was six empty rows).
+- `runtime/pl_u.c`: the `pl:u` service — RequestLoad, GetLoadState (1 = Loaded, the SDK's own enum name),
+  GetSize, Load into a client buffer, and GetSharedFont (command 6) answering the SharedFontData array
+  with the `shared_font.c` region's real pointers: the runtime maps guest memory in the same address space
+  as the host, so no shared-memory mapping is needed. Anything else dumps and stops loudly.
+
+Verified en route: saves write for real — the user's playthrough produced `GameData.dat` and
+`SlotData_0.dat` (~15 MB) under `user-data/save/`; input drives the whole title flow on keyboard
+(WASD left stick, arrows right stick, J/K/U/I = A/B/X/Y, Q/E = L/R, Option/Shift = ZL/ZR, Return = +,
+Tab/Esc = −, F/T/H/G = d-pad); Core Audio output is live (`AudioOut open 48000 Hz x2 PCM16 → Core Audio
+(stereo)`, the AQ converter and IO threads active).
+
+The game was left running for the user to reach the character select again — that leg verifies the
+service. Also fixed en route: the runtime shader translation had silently fallen back to a .NET script
+this fork never had; `make shader-tools` (the prebuilt, SHA-256-checked `totk_xlate` + SPIRV-Cross) puts
+the real service in place.

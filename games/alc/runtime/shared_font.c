@@ -35,6 +35,10 @@ static int valid(int type){if(type<0||type>=SHARED_FONT_COUNT)runtime_fail("inva
 static int load_state(int type){valid(type);return 1;}   /* SharedFontLoadState_Loaded */
 static const void *address(int type){return region+offsets[valid(type)];}
 static size_t size(int type){return (size_t)rows[valid(type)].font_bytes;}
+/* For the pl:u IPC service: the layout region and the per-font (address, size). */
+const void *runtime_shared_font_address(int type){return address(type);}
+size_t runtime_shared_font_size(int type){return size(type);}
+unsigned runtime_shared_font_count(void){return SHARED_FONT_COUNT;}
 void *runtime_font_override(const char *name){
  static const struct{const char *name;void *fn;} entries[]={
   {"_ZN2nn2pl22GetSharedFontLoadStateENS0_14SharedFontTypeE",load_state},
