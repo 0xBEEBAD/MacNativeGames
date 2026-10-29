@@ -13,7 +13,7 @@ EN_FIXED = {'MetalFX · 超分与抗锯齿': 'MetalFX · Upscaling and anti-alia
 
 def split(text):
     """(Chinese, English) of a pane text, or None when it has no Chinese part (a language name, a size)."""
-    if text in EN_FIXED: return text.split(' · ', 1)[1], EN_FIXED[text]
+    if text in EN_FIXED: return text, EN_FIXED[text]   # the Chinese text keeps its MetalFX
     if not CJK.search(text): return None
     for m in reversed(list(SEP.finditer(text))):
         left, right = text[:m.start()], text[m.end():]
