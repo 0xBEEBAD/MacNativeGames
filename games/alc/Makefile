@@ -77,7 +77,7 @@ boot: runtime
 	@mkdir -p "$(dir $(ALC_LOG))"
 	cd "$(WORK)" && TOTK_FREE_CORES=1 TOTK_GPU_ALLOW_SUBMIT=1 TOTK_GPU_MIDCLEAR=1 ./build/alc-native rewritten/v101 boot 2> "$(abspath $(ALC_LOG))"; echo "exit $$?; log: $(ALC_LOG)"
 
-# The player's mods, made into checked tables: exefs patches (mods/1.2.0/<name>/exefs/*.pchtxt) -> <work>/patches,
+# The player's mods, made into checked tables: exefs patches (mods/1.0.1/<name>/exefs/*.pchtxt) -> <work>/patches,
 # RomFS mods (mods/<name>/romfs/...) -> their manifest.tsv (sizes and SHA-256 of the replacements and the originals).
 .PHONY: patches mods app
 patches:
@@ -107,7 +107,7 @@ app: runtime shader-tools $(OUT)/launcher $(OUT)/AppIcon.icns
 	  '<key>CFBundleIdentifier</key><string>org.macnativegames.alc</string>' \
 	  '<key>CFBundleName</key><string>Astral Chain</string>' \
 	  '<key>CFBundlePackageType</key><string>APPL</string>' \
-	  '<key>CFBundleShortVersionString</key><string>1.2.0</string>' \
+	  '<key>CFBundleShortVersionString</key><string>1.0.1</string>' \
 	  '<key>CFBundleVersion</key><string>1</string>' \
 	  '<key>CFBundleIconFile</key><string>AppIcon</string>' \
 	  '<key>LSMinimumSystemVersion</key><string>26.0</string>' \

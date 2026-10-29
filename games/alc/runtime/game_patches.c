@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Astral Chain: the player's 1.2.0 exefs patches (60 fps, 900p, LOD, film grain), applied to main after relocation and
+/* Astral Chain: the player's 1.0.1 exefs patches (60 fps, 900p, LOD, film grain), applied to main after relocation and
    before its text is sealed. scripts/prepare_patches.py turns each .pchtxt into patches/<slug>.tsv ("offset new orig",
    hex), already checked against the original image and the rewrite; here every site is checked again against the loaded
    bytes, and a mismatch stops the start (a wrong version or a rewritten word must never be patched).

@@ -2,7 +2,7 @@
 """Bind the native loader to the verified Astral Chain rewrite and merged RomFS: generated headers stay in the work folder.
 
 Writes <work>/build/runtime_tables.h (modules, symbols, relocations, gates), romfs_config.h and
-extracted/v120/romfs/runtime-index.bin (the RomFS index the runtime reads), and shared_fonts_config.h.
+extracted/v101/romfs/runtime-index.bin (the RomFS index the runtime reads), and shared_fonts_config.h.
 Adapted from games/by3/scripts/prepare_runtime.py; every input is checked against assets/expected-v1.0.1.json first.
 The patch area is a separate file mapped at a signed PATCH_OFF (see third_party/d2r/patch_nso.py): the module table
 carries it as a signed literal plus PATCH_SIZE and the patch area's SHA-256.

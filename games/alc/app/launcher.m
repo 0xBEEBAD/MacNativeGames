@@ -11,7 +11,7 @@
      the game's picture to the output, TOTK_MFX_UPSCALE / TOTK_MFX_OUTPUT, or plain linear scaling).
    - Extras: improved LOD (off in every preset: it breaks the geometry here), no film grain (patches); the RomFS
      interface mod; the FPS / resolution HUD.
-   Patches come from <work>/patches (scripts/prepare_patches.py, make_res_patch.py); a missing one is left out and the
+   Patches come from <work>/patches (scripts/prepare_patches.py); a missing one is left out and the
    window says so. */
 #import <Cocoa/Cocoa.h>
 #include <errno.h>

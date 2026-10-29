@@ -11,6 +11,7 @@ entry (base+0x9c0cd0), then continues: a watch hit names the writer (pc/lr are p
 EXC_BAD_ACCESS ends the run with the guest state dumped.
 """
 import lldb
+import os
 import struct
 import sys
 import time
@@ -26,7 +27,7 @@ def alcprobe(debugger, command, exe_ctx, result, _dict):
     out("alcprobe: arming")
     bp_seal = target.BreakpointCreateByName('seal')
     si = lldb.SBLaunchInfo(['rewritten/v101', 'boot'])
-    si.SetWorkingDirectory('/Volumes/bit2t/switch/MacNativeGames/games/alc/AC_build')
+    si.SetWorkingDirectory(os.environ.get('ALC_BUILD', os.getcwd()))   # run from AC_build, or name it in ALC_BUILD
     err = lldb.SBError()
     process = target.Launch(si, err)
     if not process or not process.IsValid():

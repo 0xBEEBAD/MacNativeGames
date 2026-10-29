@@ -7,7 +7,7 @@ never affect another game and nothing here reads another game's folder; where ea
 in [third_party/COPIES.md](third_party/COPIES.md). Where the work stands: the first frame is presented
 (`nvnQueuePresentTexture` at 0.2 s), the title flow runs with input, audio output and saves, and the port is
 being driven into gameplay. The full log of what was found, done and broken on the way:
-[CHANGELOG.md](CHANGELOG.md). The plan: [PORTING-PLAN.md](PORTING-PLAN.md).
+[CHANGELOG.md](CHANGELOG.md).
 
 You must own the game: use your own card image and the `prod.keys` dumped from your own Switch. Nothing from
 the game is in this repository; `AC_build/` (the work folder) is ignored by git.

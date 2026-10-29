@@ -1,4 +1,4 @@
-Bayonetta 3's own copy of `games/totk/prebuilt/macos-arm64` (the shader translator), taken when PR #62 was merged; it is not
+Astral Chain's copy of Bayonetta 3's copy of `games/totk/prebuilt/macos-arm64` (the shader translator), taken when PR #62 was merged; it is not
 updated with the Tears of the Kingdom one. Its notes, as they were:
 
 # The shader translator, ready-made

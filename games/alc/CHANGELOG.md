@@ -2,7 +2,7 @@
 
 A record of how this port is being made, for anyone who continues it or tries the same with another game. Each entry
 says what was found, what was done and why, what went wrong on the way, and how it was checked. Newest entries go at
-the bottom of [Log](#log); [Status](#status) is kept current. The plan this work follows: [PORTING-PLAN.md](PORTING-PLAN.md).
+the bottom of [Log](#log); [Status](#status) is kept current.
 
 Conventions: dates are absolute; "verified" means a check with a recorded result, never "it looked right". Game data,
 keys and saves are never committed (see `.gitignore`).

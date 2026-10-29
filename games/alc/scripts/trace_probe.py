@@ -7,6 +7,7 @@ Run (from AC_build):
   lldb -b build/alc-native -o "command script import ../scripts/trace_probe.py" -o alctrace -o quit
 """
 import lldb
+import os
 import sys
 import time
 
@@ -38,7 +39,7 @@ def alctrace(debugger, command, exe_ctx, result, _dict):
     out("alctrace: arming")
     bp_seal = target.BreakpointCreateByName('seal')
     si = lldb.SBLaunchInfo(['rewritten/v101', 'boot'])
-    si.SetWorkingDirectory('/Volumes/bit2t/switch/MacNativeGames/games/alc/AC_build')
+    si.SetWorkingDirectory(os.environ.get('ALC_BUILD', os.getcwd()))   # run from AC_build, or name it in ALC_BUILD
     err = lldb.SBError()
     process = target.Launch(si, err)
     if not process or not process.IsValid():

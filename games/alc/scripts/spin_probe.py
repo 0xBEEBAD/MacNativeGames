@@ -8,6 +8,7 @@ Run (from AC_build):
   lldb -b build/alc-native -o "command script import ../scripts/spin_probe.py" -o alcspin -o quit
 """
 import lldb
+import os
 import struct
 import sys
 import time
@@ -23,7 +24,7 @@ def alcspin(debugger, command, exe_ctx, result, _dict):
     out("alcspin: arming")
     bp_seal = target.BreakpointCreateByName('seal')
     si = lldb.SBLaunchInfo(['rewritten/v101', 'boot'])
-    si.SetWorkingDirectory('/Volumes/bit2t/switch/MacNativeGames/games/alc/AC_build')
+    si.SetWorkingDirectory(os.environ.get('ALC_BUILD', os.getcwd()))   # run from AC_build, or name it in ALC_BUILD
     si.SetEnvironmentEntries(['TOTK_HEADLESS=1'], True)
     err = lldb.SBError()
     process = target.Launch(si, err)
