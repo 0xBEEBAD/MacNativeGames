@@ -11,7 +11,7 @@ from tools.builder.gui_style import ACCENT, FORM_W, LINE, MIN_WINDOW, MUTED, TEX
 from tools.builder.strings import text
 
 IMAGE_TYPES = ('.png', '.jpg', '.jpeg', '.heic', '.gif', '.tif', '.tiff')     # background.SUFFIXES (a test)
-TABS = ('build', 'settings', 'mods', 'controls')
+TABS = ('build', 'settings', 'mods', 'controls', 'storage', 'saves')
 
 
 def zones(root):
@@ -27,7 +27,8 @@ def zones(root):
 
 
 class TabBar:
-    """Build | Settings | Mods | Controls, clicked or reached with Tab and Space; the chosen one underlined."""
+    """Build | Settings | Mods | Controls | Storage | Saves, clicked or reached with Tab and Space; the chosen one
+    underlined."""
 
     def __init__(self, parent, font, on_change):
         self.on_change, self.current, self.tabs = on_change, None, {}
@@ -163,6 +164,10 @@ def dialog_chooser(root):
         elif kind == 'save':
             start = {'initialdir': str(Path(current).parent), 'initialfile': Path(current).name} if current else {}
             chosen = filedialog.asksaveasfilename(parent=root, defaultextension='.app', **start)
+        elif kind == 'report':                  # S2.3: the check report, text or JSON by the name given
+            start = {'initialdir': str(Path(current).parent), 'initialfile': Path(current).name} if current else {}
+            chosen = filedialog.asksaveasfilename(parent=root, defaultextension='.json', **start,
+                                                  filetypes=[(text('gui.checks.report_kind'), '*.json *.txt')])
         else:
             chosen = filedialog.askopenfilename(parent=root, **({'initialdir': str(Path(current).parent)}
                                                                  if current else {}))
