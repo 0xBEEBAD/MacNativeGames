@@ -35,3 +35,18 @@ Copied from `games/by3/third_party/d2r/`. Changes since the copy, all needed for
   guest span [PATCH_OFF, PATCH_OFF + PATCH_SIZE).
 - `prepare_modules.py` (also copied to `scripts/`): skips a missing `subsdk0` (Astral Chain has
   main/sdk/rtld only).
+
+## runtime/ third_party/d2r_gfx/ prebuilt/ app/ Makefile requirements.txt
+
+Copied from `games/by3/` (same commit 6b0c377). Changes since the copy:
+
+- `runtime/runtime.h`: `Module.patch_off` is signed (`int64_t`) and joined by `patch_size` / `patch_digest`;
+  `runtime_by3_override` is `runtime_alc_override`.
+- `runtime/loader.c`: `map_module` maps the image and the patch area (own file, signed offset, possibly below
+  the base) from one allocation and verifies both digests; `seal` protects the patch span; the permission
+  self-check classifies the patch by its guest span; `boot` tries Astral Chain's four-callback
+  `nn::init::Start` before TotK/by3's five-callback form.
+- `scripts/prepare_runtime.py`: v101, `ALC_EXPECTED`, two modules, signed `patch_off` plus patch fields in the
+  module table.
+- Game identity: title ID `01007300020FA000`, version 1.0.1, `game_version.h` rewritten; env prefixes
+  `BY3_*` → `ALC_*`; log and profile folders `alc` / `ALC`.
