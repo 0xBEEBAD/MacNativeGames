@@ -735,13 +735,13 @@ static void patch_pool_offset(Module *m) {
     static const uint64_t sites[] = {0xa7d320, 0xa7d33c};
 #endif
 #if !defined(TOTK_GAME_V112)
-    const char *e = getenv("TOTK_POOL_OFFSET_PATCH");
-    if (e && !strcmp(e, "0")) { fprintf(stderr, "[totk] %s texture pool offsets: as shipped (TOTK_POOL_OFFSET_PATCH=0)\n", TOTK_GAME_VERSION); return; }
+    const char *e = getenv("TOTK_POOL_OFFSET_PATCH");   /* the Mac only: an iPhone / iPad build ships the code already patched */
+    if (!CODE_PATCHED_AT_BUILD && e && !strcmp(e, "0")) { fprintf(stderr, "[totk] %s texture pool offsets: as shipped (TOTK_POOL_OFFSET_PATCH=0)\n", TOTK_GAME_VERSION); return; }
     const struct { uint64_t site; uint32_t original, replacement; const char *what; } words[] = {
         {sites[0], 0x93407f22, 0x2a1903e2, "sxtw x2, w25 -> mov w2, w25 (SetStorage offset)"},
         {sites[1], 0x8b39c101, 0x8b394101, "add x1, x8, w25, sxtw -> uxtw (packaged data source)"},
     };
-    for (unsigned i = 0; i < 2; i++) {
+    for (unsigned i = 0; !CODE_PATCHED_AT_BUILD && i < 2; i++) {   /* there put_word checks the replacement instead (cloth_site) */
         uint32_t w; memcpy(&w, m->base + words[i].site, 4);
         if (w != words[i].original) {
             fprintf(stderr, "[totk] texture pool offset main+%#llx: found %08x expected %08x (%s)\n", (unsigned long long)words[i].site, w, words[i].original, words[i].what);
