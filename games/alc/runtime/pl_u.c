@@ -12,6 +12,8 @@
 const void *runtime_shared_font_address(int type);
 size_t runtime_shared_font_size(int type);
 unsigned runtime_shared_font_count(void);
+uint32_t runtime_shared_font_base(void);
+uint32_t runtime_shared_font_offset(int type);
 
 static void pl_u_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs) {
     unsigned type = rq->data_size >= 4 ? *(const unsigned *)ipc_arg(rq, 0, 4) : 0;
@@ -39,6 +41,33 @@ static void pl_u_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs) {
         memcpy(ipc_guest(b->addr, b->size), runtime_shared_font_address((int)type), size);
         if (rq->na) rs->xout[rs->nxout++] = (IpcBuffer){b->addr, size, b->index};
         fprintf(stderr, "[totk-ipc] pl:u Load font %u (%zu bytes)\n", type, size);
+        return;
+    }
+    case 4: {                                                                /* GetSharedMemoryAddress */
+        uint32_t base = runtime_shared_font_base();
+        ipc_out(rs, &base, sizeof base);
+        fprintf(stderr, "[totk-ipc] pl:u shared memory base = %#x\n", base);
+        return;
+    }
+    case 5: {                                                                /* GetSharedFontInOrderOfPriority:
+                                                                                in-raw {…}, B: types/offsets/sizes */
+        fprintf(stderr, "[totk-ipc] pl:u cmd 5 in-raw:");
+        for (unsigned i = 0; i + 4 <= rq->data_size && i < 20; i += 4) {
+            uint32_t v; memcpy(&v, rq->data + i, 4);
+            fprintf(stderr, " %08x", v);
+        }
+        fputc('\n', stderr);
+        unsigned count = runtime_shared_font_count();
+        uint32_t listed = rq->data_size >= 4 ? *(const uint32_t *)ipc_arg(rq, 0, 4) : count;
+        if (listed > count) listed = count;
+        const IpcBuffer *bufs[3] = {rq->nb > 0 ? &rq->b[0] : NULL, rq->nb > 1 ? &rq->b[1] : NULL, rq->nb > 2 ? &rq->b[2] : NULL};
+        for (unsigned i = 0; i < listed; i++) {
+            if (bufs[0]) *(uint32_t *)ipc_guest(bufs[0]->addr + 4 * i, 4) = i;                       /* font type */
+            if (bufs[1]) *(uint32_t *)ipc_guest(bufs[1]->addr + 4 * i, 4) = runtime_shared_font_offset((int)i);
+            if (bufs[2]) *(uint32_t *)ipc_guest(bufs[2]->addr + 4 * i, 4) = (uint32_t)runtime_shared_font_size((int)i);
+        }
+        ipc_out(rs, &listed, sizeof listed);
+        fprintf(stderr, "[totk-ipc] pl:u priority list: %u fonts (base %#x)\n", listed, runtime_shared_font_base());
         return;
     }
     case 6: case 9: case 10: {                                               /* GetSharedFont(InOrderOfPriority*) */
