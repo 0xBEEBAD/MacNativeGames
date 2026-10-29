@@ -14,7 +14,7 @@ keys and saves are never committed (see `.gitignore`).
 | 0 | Feasibility: does the game fit the by3 architecture? Code and data out of the dump, verified | done 2026-10-29 |
 | 1 | Code rewritten for Apple silicon; merged RomFS | done 2026-10-29 |
 | 2 | A runtime fork that boots to `nnMain` | done 2026-10-29 |
-| 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | in progress: the registry-walker SEGV turned out to be a symptom; the NVN ABI version gate (GAME_ALC 53/311) and the `hwopus` service are in, the whole `nnMain` init chain passes, and the game's main loop runs — it parks in a spin at `main+0x3e415c` waiting on `[0xdb84c8]+0x194`, which is the next hunt |
+| 3 | Follow every unknown service / command / NVN call until the first `nvnQueuePresentTexture` | **done 2026-10-29**: first presented frame at 0.196 s (`nvnQueuePresentTexture` → the screen); the game then runs at its own 30 fps pacing — 10 800+ frames over 6 min verified |
 | 4 | Playable: picture, audio (Wwise), input, saves; 30/60 fps and resolution patches | |
 | 5 | TotK-grade polish: app, presets, shader seed, shared shader list, MetalFX | |
 
@@ -333,3 +333,39 @@ Probes added this session: `spin_probe.py` (flag watch, headless), `live_flag_pr
 parked process, read + watch the flag), `encode_probe.py` (sdk encoder backtrace; the "Opus encode stall"
 it once showed was an artifact of the flag watchpoint's own overhead — the field is written often during
 normal init), `fiber_probe.py` (the ordered fiber/phase trace).
+
+### 2026-10-29: stage 3 done, the first frame is presented — and the game keeps running
+
+**The fiber's waker: there is none to find — the scheduler starved it.** `fiber_probe.py` had shown the
+task fiber created (`InitializeFiber`), switched to twice, `CallFiberFunction` fired, and then nothing. The
+answer was not a missing caller: the task manager **waits for its fiber with a user-space spin**
+(`main+0x3e415c`, `ldr w9, [x8, #0x194]; cbnz w9, self` — no SVC anywhere in the loop), and the runtime's
+virtual-core model can only preempt at SVC entry (`runtime_core_checkpoint` inside `runtime_svc`). The
+spinning thread never yields its core, the fiber's worker never gets one, and the phase job never runs.
+The hardware has three real cores that run the spin and the workers simultaneously; the model has to be
+told to match it: **`TOTK_FREE_CORES=1`**. With free cores the fiber resumed immediately, the phase
+completed, and the boot sailed past the park.
+
+Two more walls fell the same hour:
+
+- **`TOTK_GPU_MIDCLEAR=1`**: Astral clears colours mid-pass, masked and scissored on its normal boot path;
+  the TotK-era isolation guard aborted the layer's first `QueueSubmitCommands`. Enabled, the clear runs.
+- **`nn::account::OpenPreselectedUser`** (the guest asserted → `nn::diag` Break right after "persistent
+  local account initialized"): the game calls the non-Try variant, which is not in `runtime/account.c`'s
+  override table, so it reached the sdk-native path, read its own empty preselected-user cache and returned
+  a failure the game treats as fatal. The override now answers from the same persistent local identity as
+  `TryOpenPreselectedUser` (an `nn::Result` instead of a bool).
+
+**Verified: first presented frame at 0.196 s** (`[totk-boot] 0.196 first presented frame`;
+by3's was 0.64 s), then the game keeps running at its own 30 fps pacing — frame 6000 at ~3.5 min, frame
+10 800 past 6 min, present intervals p50 33.33 ms on the 120 Hz display, GPU 94% busy, all of it through
+the runtime shader translation service (compute shaders included). The launcher (`make boot`) now sets the
+three switches with the reasons in a comment: `TOTK_FREE_CORES=1`, `TOTK_GPU_ALLOW_SUBMIT=1` (the TotK-era
+kernel-panic guard; Astral submits from frame 1 on this machine), `TOTK_GPU_MIDCLEAR=1`.
+
+Also this session: `make shader-tools` was never run in this tree, so the first shader translation had
+started the .NET fallback service, which needs a `scripts/shader_service.py` this fork never had; with the
+prebuilt `totk_xlate` in place (`make shader-tools`, SHA-256 checked) the runtime service works. The stage
+goal — from `nnMain` to the first `nvnQueuePresentTexture` — is met; stage 4 (playable: audio heard, input,
+saves; the 30/60 fps and resolution patches) starts from a game that already draws, drives its own frame
+pacing, and talks to the audio services.

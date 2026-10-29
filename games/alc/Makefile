@@ -62,10 +62,17 @@ $(OUT)/spirv-cross/spirv-cross:
 	xcrun clang++ -arch arm64 $(addprefix $(dir $@)obj/,$(addsuffix .o,$(SPIRV_CROSS_SOURCES))) -o "$@"
 
 # ALC_LOG: where the boot's stderr goes (the host is loud on purpose; every abort names what is missing).
+# The launcher's three switches, all recorded in CHANGELOG (stage 3, the first frame):
+#   TOTK_FREE_CORES=1     the task manager waits on its fiber with a user-space spin that never enters an SVC,
+#                         so the virtual-core model's SVC-boundary preemption never fires and the job's worker
+#                         starves; free cores match the hardware's three real cores (stage 3, the park).
+#   TOTK_GPU_ALLOW_SUBMIT the TotK-era kernel-panic guard; Astral submits from frame 1 on this machine.
+#   TOTK_GPU_MIDCLEAR=1   Astral clears colours mid-pass / masked / scissored on its normal boot path; the
+#                         TotK-era isolation guard aborts without it.
 ALC_LOG ?= $(WORK)/logs/boot.log
 boot: runtime
 	@mkdir -p "$(dir $(ALC_LOG))"
-	cd "$(WORK)" && TOTK_HEADLESS=$${TOTK_HEADLESS-} ./build/alc-native rewritten/v101 boot 2> "$(abspath $(ALC_LOG))"; echo "exit $$?; log: $(ALC_LOG)"
+	cd "$(WORK)" && TOTK_HEADLESS=$${TOTK_HEADLESS-} TOTK_FREE_CORES=1 TOTK_GPU_ALLOW_SUBMIT=1 TOTK_GPU_MIDCLEAR=1 ./build/alc-native rewritten/v101 boot 2> "$(abspath $(ALC_LOG))"; echo "exit $$?; log: $(ALC_LOG)"
 
 # The player's mods, made into checked tables: exefs patches (mods/1.2.0/<name>/exefs/*.pchtxt) -> <work>/patches,
 # RomFS mods (mods/<name>/romfs/...) -> their manifest.tsv (sizes and SHA-256 of the replacements and the originals).
