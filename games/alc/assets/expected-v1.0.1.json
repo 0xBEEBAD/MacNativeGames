@@ -1,0 +1,30 @@
+{
+    "_comment": "Verified Astral Chain 1.0.1 code (from the card's update Program NCA; the base NCA holds 1.0.0 code that the build does not use), and the base RomFS as stored on the card. The merged RomFS (base + the update's BKTR patch) and the rewritten module hashes are added by stage 1. Measured 2026-10-29 from the user's own dump with this folder's tools.",
+    "title_id": "01007300020FA000",
+    "update_title_id": "01007300020FA800",
+    "version": 65536,
+    "display_version": "1.0.1",
+    "main_build_id": "4B159F0F7A360669738390EE8657B4F000000000000000000000000000000000",
+    "container": "one XCI holding base and update Program NCAs (card image)",
+    "base_program_nca": {
+        "name": "6db3410b509dd5a3b67ae7225e1bd277.nca",
+        "nca_offset": 64000,
+        "size": 10342825984
+    },
+    "update_program_nca": {
+        "name": "31735cd4357fe8fb228ed1eb0374065c.nca",
+        "nca_offset": 10344419328,
+        "size": 195790336
+    },
+    "exefs_sha256": {
+        "main": "dc47cae835866379c597e1c507bf52ee0f865ec4412930dfdf1bbc20b6bb9c3b",
+        "main.npdm": "8edb43e844e23aa63ab9b19461d459db1061ff6cda5cd167c6477369751a513a",
+        "rtld": "52735462296339700ae8c54b3d84f8fd0d96113a313a15a4e0a6973ec63dffb4",
+        "sdk": "d58f76a49d32c1a8192befc8cd6341e45d802eade3a474f7117a842232446d7e"
+    },
+    "romfs_base": {
+        "size": 10309560892,
+        "sha256": "cdfb704316ebb0396bbc78062a55da7527f21092f6205ceb5eaa2bfa0bd13dd8",
+        "files": 8701
+    }
+}
